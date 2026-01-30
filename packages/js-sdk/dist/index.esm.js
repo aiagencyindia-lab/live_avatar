@@ -32,7 +32,7 @@ typeof SuppressedError === "function" ? SuppressedError : function (error, suppr
     return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
 };
 
-function _mergeNamespaces(n, m) {
+function _mergeNamespaces$1(n, m) {
   m.forEach(function (e) {
     e && typeof e !== 'string' && !Array.isArray(e) && Object.keys(e).forEach(function (k) {
       if (k !== 'default' && !(k in n)) {
@@ -9699,7 +9699,7 @@ function requireSdp() {
 var sdpExports = requireSdp();
 var SDPUtils = /*@__PURE__*/getDefaultExportFromCjs(sdpExports);
 
-var sdp = /*#__PURE__*/_mergeNamespaces({
+var sdp = /*#__PURE__*/_mergeNamespaces$1({
   __proto__: null,
   default: SDPUtils
 }, [sdpExports]);
@@ -14303,7 +14303,7 @@ var hasRequiredParser;
 function requireParser() {
   if (hasRequiredParser) return parser;
   hasRequiredParser = 1;
-  (function (exports) {
+  (function (exports$1) {
     var toIntIfInt = function (v) {
       return String(Number(v)) === v ? Number(v) : v;
     };
@@ -14336,7 +14336,7 @@ function requireParser() {
     };
     var grammar = requireGrammar();
     var validLine = RegExp.prototype.test.bind(/^([a-z])=(.*)/);
-    exports.parse = function (sdp) {
+    exports$1.parse = function (sdp) {
       var session = {},
         media = [],
         location = session; // points at where properties go under (one of the above)
@@ -14371,16 +14371,16 @@ function requireParser() {
       }
       return acc;
     };
-    exports.parseParams = function (str) {
+    exports$1.parseParams = function (str) {
       return str.split(/;\s?/).reduce(paramReducer, {});
     };
 
     // For backward compatibility - alias will be removed in 3.0.0
-    exports.parseFmtpConfig = exports.parseParams;
-    exports.parsePayloads = function (str) {
+    exports$1.parseFmtpConfig = exports$1.parseParams;
+    exports$1.parsePayloads = function (str) {
       return str.toString().split(' ').map(Number);
     };
-    exports.parseRemoteCandidates = function (str) {
+    exports$1.parseRemoteCandidates = function (str) {
       var candidates = [];
       var parts = str.split(' ').map(toIntIfInt);
       for (var i = 0; i < parts.length; i += 3) {
@@ -14392,12 +14392,12 @@ function requireParser() {
       }
       return candidates;
     };
-    exports.parseImageAttributes = function (str) {
+    exports$1.parseImageAttributes = function (str) {
       return str.split(' ').map(function (item) {
         return item.substring(1, item.length - 1).split(',').reduce(paramReducer, {});
       });
     };
-    exports.parseSimulcastStreamList = function (str) {
+    exports$1.parseSimulcastStreamList = function (str) {
       return str.split(';').map(function (stream) {
         return stream.split(',').map(function (format) {
           var scid,
