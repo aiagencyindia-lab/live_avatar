@@ -1,0 +1,18 @@
+
+
+> @heygen/liveavatar-web-sdk@0.0.10 build /Users/madhavjangid/Downloads/Shubham Work/liveavatar-web-sdk/packages/js-sdk
+> rollup -c
+
+[36m
+[1msrc/index.ts[22m → [1mlib/index.cjs.js, lib/index.esm.js[22m...[39m
+[32mcreated [1mlib/index.cjs.js, lib/index.esm.js[22m in [1m939ms[22m[39m
+[36m
+[1msrc/index.ts[22m → [1mdist/index.umd.js, dist/index.esm.js[22m...[39m
+[1m[33m(!) Missing shims for Node.js built-ins[39m[22m
+Creating a browser bundle that depends on "events". You might need to include https://github.com/FredKSchott/rollup-plugin-polyfill-node
+[1m[33m(!) [plugin node-resolve] preferring built-in module 'events' over local alternative at '/Users/madhavjangid/Downloads/Shubham Work/liveavatar-web-sdk/node_modules/.pnpm/events@3.3.0/node_modules/events/events.js', pass 'preferBuiltins: false' to disable this behavior or 'preferBuiltins: true' to disable this warning.or passing a function to 'preferBuiltins' to provide more fine-grained control over which built-in modules to prefer.[39m[22m
+[1m[33m(!) Missing global variable name[39m[22m
+[90mhttps://rollupjs.org/configuration-options/#output-globals[39m
+Use "output.globals" to specify browser global variable names corresponding to external modules:
+[1mevents[22m (guessing "events$1")
+[32mcreated [1mdist/index.umd.js, dist/index.esm.js[22m in [1m1.1s[22m[39m
