@@ -9,8 +9,8 @@ export const IS_SANDBOX = process.env.HEYGEN_IS_SANDBOX === "true";
 // FULL MODE Customizations
 // Wayne's avatar voice and context
 export const VOICE_ID = process.env.HEYGEN_VOICE_ID || "c2527536-6d1f-4412-a643-53a3497dada9";
-export const CONTEXT_ID = process.env.HEYGEN_CONTEXT_ID || "5b9dba8a-aa31-11f0-a6ee-066a7fa2e369";
-export const LANGUAGE = process.env.HEYGEN_LANGUAGE || "en";
+export const CONTEXT_ID = process.env.HEYGEN_CONTEXT_ID || "af542887-189e-47d7-8561-155880dcf57b";
+export const LANGUAGE = process.env.HEYGEN_LANGUAGE || "hi";
 
 // CUSTOM MODE Customizations
 export const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
