@@ -1,6 +1,19 @@
 {
   "$schema": "https://turborepo.com/schema.json",
   "ui": "tui",
+  "globalPassThroughEnv": [
+    "PORT",
+    "NODE_ENV",
+    "HEYGEN_API_KEY",
+    "HEYGEN_API_URL",
+    "HEYGEN_AVATAR_ID",
+    "HEYGEN_IS_SANDBOX",
+    "HEYGEN_VOICE_ID",
+    "HEYGEN_CONTEXT_ID",
+    "HEYGEN_LANGUAGE",
+    "ELEVENLABS_API_KEY",
+    "OPENAI_API_KEY"
+  ],
   "tasks": {
     "build": {
       "dependsOn": [
