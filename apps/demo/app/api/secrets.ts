@@ -1,6 +1,6 @@
-export const API_KEY = process.env.HEYGEN_API_KEY || "";
+export const API_KEY = process.env.HEYGEN_API_KEY || "ad1ee983-ff73-11f0-a99e-066a7fa2e369";
 export const API_URL = process.env.HEYGEN_API_URL || "https://api.liveavatar.com";
-export const AVATAR_ID = process.env.HEYGEN_AVATAR_ID || "";
+export const AVATAR_ID = process.env.HEYGEN_AVATAR_ID || "7b888024-f8c9-4205-95e1-78ce01497bda";
 
 // When true, we will call everything in Sandbox mode.
 // Useful for integration and development.

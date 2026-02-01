@@ -30,7 +30,8 @@ const Button: React.FC<{
 const LiveAvatarSessionComponent: React.FC<{
   mode: SessionMode;
   onSessionStopped: () => void;
-}> = ({ mode, onSessionStopped }) => {
+  onStreamReady?: () => void;
+}> = ({ mode, onSessionStopped, onStreamReady }) => {
   const [message, setMessage] = useState("");
   const {
     sessionState,
@@ -74,8 +75,9 @@ const LiveAvatarSessionComponent: React.FC<{
   useEffect(() => {
     if (isStreamReady && videoRef.current) {
       attachElement(videoRef.current);
+      onStreamReady?.(); // Notify parent that stream is ready
     }
-  }, [attachElement, isStreamReady]);
+  }, [attachElement, isStreamReady, onStreamReady]);
 
   useEffect(() => {
     if (sessionState === SessionState.INACTIVE) {
@@ -142,71 +144,42 @@ const LiveAvatarSessionComponent: React.FC<{
   );
 
   return (
-    <div className="w-[1080px] max-w-full h-full flex flex-col items-center justify-center gap-4 py-4">
-      <div className="relative w-full aspect-video overflow-hidden flex flex-col items-center justify-center">
+    <div className="w-full h-full flex flex-col items-center justify-center bg-black relative">
+      <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center">
         <video
           ref={videoRef}
           autoPlay
           playsInline
-          className="w-full h-full object-contain"
+          className="w-full h-full object-cover"
         />
-        <button
-          className="absolute bottom-4 right-4 bg-white text-black px-4 py-2 rounded-md"
-          onClick={() => stopSession()}
-        >
-          Stop
-        </button>
-      </div>
-      <div className="w-full h-full flex flex-col items-center justify-center gap-4">
-        <p>Session state: {sessionState}</p>
-        <p>Connection quality: {connectionQuality}</p>
-        {(mode === "FULL" || mode === "FULL_PTT") && (
-          <p>User talking: {isUserTalking ? "true" : "false"}</p>
-        )}
-        <p>Avatar talking: {isAvatarTalking ? "true" : "false"}</p>
-        {mode === "FULL" && VoiceChatComponents}
-        {mode === "FULL_PTT" && PushToTalkComponents}
-        <Button
-          onClick={() => {
-            keepAlive();
-          }}
-        >
-          Keep Alive
-        </Button>
-        <div className="w-full h-full flex flex-row items-center justify-center gap-4">
-          <Button
-            onClick={() => {
-              interrupt();
-            }}
+        {/* Controls Overlay */}
+        <div className="absolute bottom-8 right-8 z-50">
+          <button
+            onClick={() => stopSession()}
+            className="group relative flex items-center justify-center w-16 h-16 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-lg transition-all duration-300 hover:scale-105 active:scale-95"
+            aria-label="End Session"
           >
-            Interrupt
-          </Button>
-        </div>
-        <div className="w-full h-full flex flex-row items-center justify-center gap-4">
-          <input
-            type="text"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            className="w-[400px] bg-white text-black px-4 py-2 rounded-md"
-          />
-          <Button
-            onClick={() => {
-              sendMessage(message);
-              setMessage("");
-            }}
-          >
-            Send
-          </Button>
-          <Button
-            onClick={() => {
-              repeat(message);
-              setMessage("");
-            }}
-          >
-            Repeat
-          </Button>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="32"
+              height="32"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
+          </button>
         </div>
       </div>
+
+      {/* Hidden container for necessary elements? No, standard HTML video element is enough. 
+          The debug info is removed. 
+      */}
     </div>
   );
 };
@@ -215,22 +188,25 @@ export const LiveAvatarSession: React.FC<{
   mode: SessionMode;
   sessionAccessToken: string;
   onSessionStopped: () => void;
+  onStreamReady?: () => void;
   voiceChatConfig?: boolean | VoiceChatConfig;
 }> = ({
   mode,
   sessionAccessToken,
   onSessionStopped,
+  onStreamReady,
   voiceChatConfig = true,
 }) => {
-  return (
-    <LiveAvatarContextProvider
-      sessionAccessToken={sessionAccessToken}
-      voiceChatConfig={voiceChatConfig}
-    >
-      <LiveAvatarSessionComponent
-        mode={mode}
-        onSessionStopped={onSessionStopped}
-      />
-    </LiveAvatarContextProvider>
-  );
-};
+    return (
+      <LiveAvatarContextProvider
+        sessionAccessToken={sessionAccessToken}
+        voiceChatConfig={voiceChatConfig}
+      >
+        <LiveAvatarSessionComponent
+          mode={mode}
+          onSessionStopped={onSessionStopped}
+          onStreamReady={onStreamReady}
+        />
+      </LiveAvatarContextProvider>
+    );
+  };

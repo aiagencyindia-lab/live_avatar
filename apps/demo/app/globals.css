@@ -1,3 +1,22 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Hide Next.js Dev Indicators */
+[data-nextjs-toast] {
+  display: none !important;
+}
+[data-nextjs-toast-errors] {
+  display: none !important;
+}
+/* This targets the static route indicator in older Next.js versions or specific builds */
+div[class*="nextjs-toast"] {
+    display: none !important;
+}
+/* Try to target the Shadow DOM host if possible, though CSS can't pierce it deeply without specific selectors. 
+   Next 13+ often puts it in a shadow root. We might strictly need to use the `devIndicators` config in next.config.js
+   but let's try CSS first as a quick fix or use display none on the container if accessible. 
+*/
+nextjs-portal {
+  display: none !important;
+}
