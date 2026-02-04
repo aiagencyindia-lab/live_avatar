@@ -9,7 +9,7 @@ export const IS_SANDBOX = process.env.HEYGEN_IS_SANDBOX === "true";
 // FULL MODE Customizations
 // Wayne's avatar voice and context
 export const VOICE_ID = process.env.HEYGEN_VOICE_ID || "c2527536-6d1f-4412-a643-53a3497dada9";
-export const CONTEXT_ID = process.env.HEYGEN_CONTEXT_ID || "af542887-189e-47d7-8561-155880dcf57b";
+export const CONTEXT_ID = process.env.HEYGEN_CONTEXT_ID || "42a889c9-49ab-4a85-bae7-052a3fbbae8f";
 export const LANGUAGE = process.env.HEYGEN_LANGUAGE || "hi";
 
 // CUSTOM MODE Customizations
