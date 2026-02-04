@@ -100,7 +100,7 @@ export const LiveAvatarDemo = () => {
           <div className="w-full h-full relative flex items-center justify-center pointer-events-auto">
             {/* Background Idle Video */}
             <video
-              src="/screen_idle.mov"
+              src="avatar 2.0.mp4"
               autoPlay
               loop
               muted
