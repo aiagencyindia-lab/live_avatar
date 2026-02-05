@@ -736,17 +736,13 @@ class LiveAvatarSession extends events.EventEmitter {
         // Required to construct the room
         this.config = config !== null && config !== void 0 ? config : {};
         this.sessionClient = new SessionAPIClient(sessionAccessToken, this.config.apiUrl);
-        this.room = new livekitClient.Room({
-            adaptiveStream: livekitClient.supportsAdaptiveStream()
+        this.room = new livekitClient.Room(Object.assign({ adaptiveStream: livekitClient.supportsAdaptiveStream()
                 ? {
                     pauseVideoInBackground: false,
                 }
-                : false,
-            dynacast: livekitClient.supportsDynacast(),
-            videoCaptureDefaults: {
+                : false, dynacast: livekitClient.supportsDynacast(), videoCaptureDefaults: {
                 resolution: livekitClient.VideoPresets.h720.resolution,
-            },
-        });
+            } }, this.config.roomOptions));
         this._voiceChat = new VoiceChat(this.room);
         if (this.config.voiceChat &&
             typeof this.config.voiceChat === "object" &&
@@ -783,7 +779,7 @@ class LiveAvatarSession extends events.EventEmitter {
                 if (livekitRoomUrl && livekitClientToken) {
                     // Track the different events from the room, server, and websocket
                     this.trackEvents();
-                    yield this.room.connect(livekitRoomUrl, livekitClientToken);
+                    yield this.room.connect(livekitRoomUrl, livekitClientToken, this.config.connectOptions);
                     this.connectionQualityIndicator.start(this.room);
                 }
                 // Connect to WebSocket if provided

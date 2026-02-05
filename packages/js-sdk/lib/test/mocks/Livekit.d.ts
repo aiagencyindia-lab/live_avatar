@@ -17,7 +17,7 @@ export declare class LocalParticipantMock extends EventEmitter {
     _triggerConnectionQualityChanged: (quality: ConnectionQuality) => void;
 }
 export declare class RoomMock extends EventEmitter {
-    constructor();
+    constructor(options?: any);
     name: string;
     sid: string;
     remoteParticipants: Map<any, any>;

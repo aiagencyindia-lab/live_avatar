@@ -26491,17 +26491,13 @@
             // Required to construct the room
             this.config = config !== null && config !== void 0 ? config : {};
             this.sessionClient = new SessionAPIClient(sessionAccessToken, this.config.apiUrl);
-            this.room = new Room({
-                adaptiveStream: supportsAdaptiveStream()
+            this.room = new Room(Object.assign({ adaptiveStream: supportsAdaptiveStream()
                     ? {
                         pauseVideoInBackground: false,
                     }
-                    : false,
-                dynacast: supportsDynacast(),
-                videoCaptureDefaults: {
+                    : false, dynacast: supportsDynacast(), videoCaptureDefaults: {
                     resolution: VideoPresets.h720.resolution,
-                },
-            });
+                } }, this.config.roomOptions));
             this._voiceChat = new VoiceChat(this.room);
             if (this.config.voiceChat &&
                 typeof this.config.voiceChat === "object" &&
@@ -26538,7 +26534,7 @@
                     if (livekitRoomUrl && livekitClientToken) {
                         // Track the different events from the room, server, and websocket
                         this.trackEvents();
-                        yield this.room.connect(livekitRoomUrl, livekitClientToken);
+                        yield this.room.connect(livekitRoomUrl, livekitClientToken, this.config.connectOptions);
                         this.connectionQualityIndicator.start(this.room);
                     }
                     // Connect to WebSocket if provided

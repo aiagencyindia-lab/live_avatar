@@ -6,6 +6,8 @@ export type {
   SessionConfig,
   SessionInfo,
   SessionApiError,
+  RoomOptions,
+  RoomConnectOptions,
 } from "./LiveAvatarSession";
 export type { VoiceChat, VoiceChatConfig } from "./VoiceChat";
 

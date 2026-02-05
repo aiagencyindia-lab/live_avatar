@@ -51,7 +51,7 @@ export class LocalParticipantMock extends EventEmitter {
   getTrackPublications() {
     return this.trackPublications;
   }
-  publishData = vi.fn(() => {});
+  publishData = vi.fn(() => { });
 
   _triggerConnectionQualityChanged = (quality: ConnectionQuality) => {
     this.emit(ParticipantEvent.ConnectionQualityChanged, quality);
@@ -59,9 +59,10 @@ export class LocalParticipantMock extends EventEmitter {
 }
 
 export class RoomMock extends EventEmitter {
-  constructor() {
+  constructor(options?: any) {
     super();
     testContext.roomInstance = this;
+    testContext.roomOptions = options;
   }
 
   name = "mock-room";

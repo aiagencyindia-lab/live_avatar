@@ -1,10 +1,10 @@
-export const API_KEY = process.env.HEYGEN_API_KEY || "ad1ee983-ff73-11f0-a99e-066a7fa2e369";
+export const API_KEY = process.env.HEYGEN_API_KEY || "b7fb9d64-f9df-11f0-a99e-066a7fa2e369";
 export const API_URL = process.env.HEYGEN_API_URL || "https://api.liveavatar.com";
 export const AVATAR_ID = process.env.HEYGEN_AVATAR_ID || "6e95b03b-3efb-4f78-ade5-3e0e9e82d8c2";
 
 // When true, we will call everything in Sandbox mode.
 // Useful for integration and development.
-export const IS_SANDBOX = process.env.HEYGEN_IS_SANDBOX === "true";
+export const IS_SANDBOX = process.env.HEYGEN_IS_SANDBOX === "false";
 
 // FULL MODE Customizations
 // Wayne's avatar voice and context

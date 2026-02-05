@@ -8,6 +8,8 @@ import {
   VoiceChatState,
   AgentEventsEnum,
   VoiceChatConfig,
+  RoomOptions,
+  RoomConnectOptions,
 } from "@heygen/liveavatar-web-sdk";
 import { LiveAvatarSessionMessage } from "./types";
 import { API_URL } from "../../app/api/secrets";
@@ -46,6 +48,8 @@ type LiveAvatarContextProviderProps = {
   children: React.ReactNode;
   sessionAccessToken: string;
   voiceChatConfig?: boolean | VoiceChatConfig;
+  roomOptions?: RoomOptions;
+  connectOptions?: RoomConnectOptions;
 };
 
 const useSessionState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
@@ -180,11 +184,15 @@ export const LiveAvatarContextProvider = ({
   children,
   sessionAccessToken,
   voiceChatConfig = true,
+  roomOptions,
+  connectOptions,
 }: LiveAvatarContextProviderProps) => {
   // Default voice chat on
   const config = {
     voiceChat: voiceChatConfig,
     apiUrl: API_URL,
+    roomOptions,
+    connectOptions,
   };
   const sessionRef = useRef<LiveAvatarSession>(
     new LiveAvatarSession(sessionAccessToken, config),

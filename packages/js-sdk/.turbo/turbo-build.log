@@ -5,7 +5,7 @@
 
 [36m
 [1msrc/index.ts[22m → [1mlib/index.cjs.js, lib/index.esm.js[22m...[39m
-[32mcreated [1mlib/index.cjs.js, lib/index.esm.js[22m in [1m1s[22m[39m
+[32mcreated [1mlib/index.cjs.js, lib/index.esm.js[22m in [1m975ms[22m[39m
 [36m
 [1msrc/index.ts[22m → [1mdist/index.umd.js, dist/index.esm.js[22m...[39m
 [1m[33m(!) Missing shims for Node.js built-ins[39m[22m

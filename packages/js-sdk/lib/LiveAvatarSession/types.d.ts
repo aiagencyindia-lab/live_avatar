@@ -1,3 +1,5 @@
+import { RoomOptions, RoomConnectOptions } from "livekit-client";
+export type { RoomOptions, RoomConnectOptions };
 import { VoiceChatConfig } from "../VoiceChat";
 export declare enum SessionState {
     INACTIVE = "INACTIVE",
@@ -14,6 +16,8 @@ export declare enum SessionDisconnectReason {
 export interface SessionConfig {
     voiceChat?: VoiceChatConfig | boolean;
     apiUrl?: string;
+    roomOptions?: RoomOptions;
+    connectOptions?: RoomConnectOptions;
 }
 export interface SessionInfo {
     session_id: string;

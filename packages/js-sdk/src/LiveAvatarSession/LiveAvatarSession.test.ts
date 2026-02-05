@@ -316,7 +316,7 @@ describe("LiveAvatarSession command events", () => {
     expect(parsedSendData.type).toEqual("agent.speak");
     const lastEvent =
       testContext.wsInstance.send.mock.calls[
-        testContext.wsInstance.send.mock.calls.length - 1
+      testContext.wsInstance.send.mock.calls.length - 1
       ][0];
     const parsedLastEvent = JSON.parse(lastEvent);
     expect(parsedLastEvent.type).toEqual("agent.speak_end");
@@ -550,6 +550,39 @@ describe("LiveAvatarSession custom url", () => {
     expect(fetch).toHaveBeenCalledWith(
       `${URL}/v1/sessions/stop`,
       expect.any(Object),
+    );
+  });
+});
+
+describe("LiveAvatarSession custom room and connect options", () => {
+  it("passes custom room and connect options to livekit", async () => {
+    const roomOptions = {
+      adaptiveStream: true,
+      captureDefaults: {
+        facingMode: "user",
+      },
+    };
+    const connectOptions = {
+      autoSubscribe: false,
+    };
+    const session = setupLiveAvatarSession({
+      sessionInfo: sessionInfoMock,
+      sessionConfig: {
+        roomOptions: roomOptions as any,
+        connectOptions: connectOptions as any,
+      },
+    });
+
+    // Check room options in constructor
+    expect(testContext.roomOptions).toMatchObject(roomOptions);
+
+    await session.start();
+
+    // Check connect options
+    expect(testContext.roomInstance.connect).toHaveBeenCalledWith(
+      sessionInfoMock.livekit_url,
+      sessionInfoMock.livekit_client_token,
+      connectOptions,
     );
   });
 });

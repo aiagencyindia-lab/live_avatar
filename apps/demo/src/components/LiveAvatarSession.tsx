@@ -7,7 +7,12 @@ import {
   useTextChat,
   useVoiceChat,
 } from "../liveavatar";
-import { SessionState, VoiceChatConfig } from "@heygen/liveavatar-web-sdk";
+import {
+  SessionState,
+  VoiceChatConfig,
+  RoomOptions,
+  RoomConnectOptions,
+} from "@heygen/liveavatar-web-sdk";
 import { useAvatarActions } from "../liveavatar/useAvatarActions";
 import { SessionMode } from "./LiveAvatarDemo";
 
@@ -150,7 +155,7 @@ const LiveAvatarSessionComponent: React.FC<{
           ref={videoRef}
           autoPlay
           playsInline
-          className="w-full h-full object-cover"
+          className="w-full h-full object-contain"
         />
         {/* Controls Overlay */}
         <div className="absolute bottom-8 right-8 z-50">
@@ -190,17 +195,23 @@ export const LiveAvatarSession: React.FC<{
   onSessionStopped: () => void;
   onStreamReady?: () => void;
   voiceChatConfig?: boolean | VoiceChatConfig;
+  roomOptions?: RoomOptions;
+  connectOptions?: RoomConnectOptions;
 }> = ({
   mode,
   sessionAccessToken,
   onSessionStopped,
   onStreamReady,
   voiceChatConfig = true,
+  roomOptions,
+  connectOptions,
 }) => {
     return (
       <LiveAvatarContextProvider
         sessionAccessToken={sessionAccessToken}
         voiceChatConfig={voiceChatConfig}
+        roomOptions={roomOptions}
+        connectOptions={connectOptions}
       >
         <LiveAvatarSessionComponent
           mode={mode}

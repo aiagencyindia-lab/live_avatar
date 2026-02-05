@@ -169,6 +169,10 @@ export const LiveAvatarDemo = () => {
             voiceChatConfig={voiceChatConfig}
             onSessionStopped={onSessionStopped}
             onStreamReady={handleStreamReady}
+            roomOptions={{
+              adaptiveStream: true,
+              dynacast: true,
+            }}
           />
         </div>
       )}

@@ -1,3 +1,5 @@
+import { RoomOptions, RoomConnectOptions } from "livekit-client";
+export type { RoomOptions, RoomConnectOptions };
 import { VoiceChatConfig } from "../VoiceChat";
 
 export enum SessionState {
@@ -18,6 +20,8 @@ export enum SessionDisconnectReason {
 export interface SessionConfig {
   voiceChat?: VoiceChatConfig | boolean;
   apiUrl?: string;
+  roomOptions?: RoomOptions;
+  connectOptions?: RoomConnectOptions;
 }
 
 export interface SessionInfo {

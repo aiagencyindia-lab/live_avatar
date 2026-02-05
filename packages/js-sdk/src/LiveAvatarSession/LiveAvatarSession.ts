@@ -75,13 +75,14 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
     this.room = new Room({
       adaptiveStream: supportsAdaptiveStream()
         ? {
-            pauseVideoInBackground: false,
-          }
+          pauseVideoInBackground: false,
+        }
         : false,
       dynacast: supportsDynacast(),
       videoCaptureDefaults: {
         resolution: VideoPresets.h720.resolution,
       },
+      ...this.config.roomOptions,
     });
     this._voiceChat = new VoiceChat(this.room);
     if (
@@ -127,7 +128,11 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
       if (livekitRoomUrl && livekitClientToken) {
         // Track the different events from the room, server, and websocket
         this.trackEvents();
-        await this.room.connect(livekitRoomUrl, livekitClientToken);
+        await this.room.connect(
+          livekitRoomUrl,
+          livekitClientToken,
+          this.config.connectOptions,
+        );
         this.connectionQualityIndicator.start(this.room);
       }
 
