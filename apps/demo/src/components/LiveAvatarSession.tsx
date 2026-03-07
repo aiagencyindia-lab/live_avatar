@@ -128,15 +128,19 @@ const LiveAvatarSessionComponent: React.FC<{
     </>
   );
 
-  const handleTogglePTT = () => {
+  const startPTT = () => {
+    if (!isRecordingPTT) {
+      startListening();
+      startPushToTalk();
+      setIsRecordingPTT(true);
+    }
+  };
+
+  const stopPTT = () => {
     if (isRecordingPTT) {
       stopPushToTalk();
       stopListening();
       setIsRecordingPTT(false);
-    } else {
-      startListening();
-      startPushToTalk();
-      setIsRecordingPTT(true);
     }
   };
 
@@ -153,10 +157,14 @@ const LiveAvatarSessionComponent: React.FC<{
         {mode === "FULL_PTT" && (
           <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50">
             <button
-              onClick={handleTogglePTT}
+              onMouseDown={startPTT}
+              onMouseUp={stopPTT}
+              onMouseLeave={stopPTT}
+              onTouchStart={startPTT}
+              onTouchEnd={stopPTT}
               className={`flex items-center justify-center px-8 py-4 rounded-full font-bold text-white shadow-lg transition-all duration-300 hover:scale-105 active:scale-95 ${isRecordingPTT
-                  ? "bg-red-500 animate-pulse drop-shadow-[0_0_15px_rgba(239,68,68,0.8)]"
-                  : "bg-blue-600 hover:bg-blue-700 drop-shadow-[0_0_10px_rgba(37,99,235,0.5)]"
+                ? "bg-red-500 drop-shadow-[0_0_15px_rgba(239,68,68,0.8)]"
+                : "bg-blue-600 hover:bg-blue-700 drop-shadow-[0_0_10px_rgba(37,99,235,0.5)]"
                 }`}
             >
               <svg
@@ -175,7 +183,7 @@ const LiveAvatarSessionComponent: React.FC<{
                 <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                 <rect x="9" y="2" width="6" height="13" rx="3" />
               </svg>
-              {isRecordingPTT ? "Tap to Stop" : "Tap to Speak"}
+              {isRecordingPTT ? "Release to Send" : "Hold to Speak"}
             </button>
           </div>
         )}
