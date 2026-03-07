@@ -38,6 +38,7 @@ const LiveAvatarSessionComponent: React.FC<{
   onStreamReady?: () => void;
 }> = ({ mode, onSessionStopped, onStreamReady }) => {
   const [message, setMessage] = useState("");
+  const [isRecordingPTT, setIsRecordingPTT] = useState(false);
   const {
     sessionState,
     isStreamReady,
@@ -127,26 +128,17 @@ const LiveAvatarSessionComponent: React.FC<{
     </>
   );
 
-  const PushToTalkComponents = (
-    <div className="flex flex-row items-center justify-center gap-4">
-      <Button
-        onClick={() => {
-          startListening();
-          startPushToTalk();
-        }}
-      >
-        Start Push to Talk
-      </Button>
-      <Button
-        onClick={() => {
-          stopPushToTalk();
-          stopListening();
-        }}
-      >
-        Stop Push to Talk
-      </Button>
-    </div>
-  );
+  const handleTogglePTT = () => {
+    if (isRecordingPTT) {
+      stopPushToTalk();
+      stopListening();
+      setIsRecordingPTT(false);
+    } else {
+      startListening();
+      startPushToTalk();
+      setIsRecordingPTT(true);
+    }
+  };
 
   return (
     <div className="w-full h-full flex flex-col items-center justify-center bg-black relative">
@@ -158,6 +150,35 @@ const LiveAvatarSessionComponent: React.FC<{
           className="w-full h-full object-contain"
         />
         {/* Controls Overlay */}
+        {mode === "FULL_PTT" && (
+          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50">
+            <button
+              onClick={handleTogglePTT}
+              className={`flex items-center justify-center px-8 py-4 rounded-full font-bold text-white shadow-lg transition-all duration-300 hover:scale-105 active:scale-95 ${isRecordingPTT
+                  ? "bg-red-500 animate-pulse drop-shadow-[0_0_15px_rgba(239,68,68,0.8)]"
+                  : "bg-blue-600 hover:bg-blue-700 drop-shadow-[0_0_10px_rgba(37,99,235,0.5)]"
+                }`}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="mr-2"
+              >
+                <path d="M12 19v3" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <rect x="9" y="2" width="6" height="13" rx="3" />
+              </svg>
+              {isRecordingPTT ? "Tap to Stop" : "Tap to Speak"}
+            </button>
+          </div>
+        )}
         <div className="absolute bottom-8 right-8 z-50">
           <button
             onClick={() => stopSession()}
