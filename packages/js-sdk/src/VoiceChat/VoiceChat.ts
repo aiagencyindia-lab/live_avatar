@@ -134,6 +134,7 @@ export class VoiceChat extends (EventEmitter as new () => TypedEmitter<VoiceChat
       await this.track.mute();
     }
   }
+  
 
   public async unmute(): Promise<void> {
     if (!this.assertActive("Voice chat can only be unmuted when active")) {
