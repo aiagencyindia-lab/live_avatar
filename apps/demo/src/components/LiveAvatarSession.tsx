@@ -38,7 +38,6 @@ const LiveAvatarSessionComponent: React.FC<{
   onStreamReady?: () => void;
 }> = ({ mode, onSessionStopped, onStreamReady }) => {
   const [message, setMessage] = useState("");
-  const [isRecordingPTT, setIsRecordingPTT] = useState(false);
   const {
     sessionState,
     isStreamReady,
@@ -58,8 +57,6 @@ const LiveAvatarSessionComponent: React.FC<{
     stop,
     mute,
     unmute,
-    startPushToTalk,
-    stopPushToTalk,
   } = useVoiceChat();
 
   // For useAvatarActions, treat FULL_PTT as FULL since they share the same API
@@ -71,6 +68,9 @@ const LiveAvatarSessionComponent: React.FC<{
   const textChatMode = mode === "FULL_PTT" ? "FULL" : mode;
   const { sendMessage } = useTextChat(textChatMode);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Track whether we auto-muted (so we don't override manual mute)
+  const autoMutedRef = useRef(false);
 
   useEffect(() => {
     if (sessionState === SessionState.DISCONNECTED) {
@@ -91,58 +91,25 @@ const LiveAvatarSessionComponent: React.FC<{
     }
   }, [startSession, sessionState]);
 
-  const VoiceChatComponents = (
-    <>
-      <p>Voice Chat Active: {isActive ? "true" : "false"}</p>
-      <p>Voice Chat Loading: {isLoading ? "true" : "false"}</p>
-      {isActive && <p>Muted: {isMuted ? "true" : "false"}</p>}
-      <Button
-        onClick={() => {
-          if (isActive) {
-            stop();
-          } else {
-            start();
-          }
-        }}
-        disabled={isLoading}
-      >
-        {isActive ? "Stop Voice Chat" : "Start Voice Chat"}
-      </Button>
-      {isActive && (
-        <Button
-          onClick={() => {
-            if (isMuted) {
-              unmute();
-            } else {
-              mute();
-            }
-          }}
-        >
-          {isMuted ? "Unmute" : "Mute"}
-        </Button>
-      )}
-      <div className="flex flex-row items-center justify-center gap-4">
-        <Button onClick={startListening}>Start Listening</Button>
-        <Button onClick={stopListening}>Stop Listening</Button>
-      </div>
-    </>
-  );
+  // Auto-mute when avatar is speaking to prevent interruption,
+  // auto-unmute when avatar finishes speaking
+  useEffect(() => {
+    if (!isActive) return;
 
-  const startPTT = () => {
-    if (!isRecordingPTT) {
-      startListening();
-      startPushToTalk();
-      setIsRecordingPTT(true);
+    if (isAvatarTalking) {
+      // Avatar started speaking - mute user mic to prevent interruption
+      if (!isMuted) {
+        mute();
+        autoMutedRef.current = true;
+      }
+    } else {
+      // Avatar stopped speaking - unmute user mic so they can ask next question
+      if (autoMutedRef.current && isMuted) {
+        unmute();
+        autoMutedRef.current = false;
+      }
     }
-  };
-
-  const stopPTT = () => {
-    if (isRecordingPTT) {
-      stopPushToTalk();
-      stopListening();
-      setIsRecordingPTT(false);
-    }
-  };
+  }, [isAvatarTalking, isActive, isMuted, mute, unmute]);
 
   return (
     <div className="w-full h-full flex flex-col items-center justify-center bg-black relative">
@@ -153,38 +120,64 @@ const LiveAvatarSessionComponent: React.FC<{
           playsInline
           className="w-full h-full object-contain"
         />
-        {/* Controls Overlay */}
-        {mode === "FULL_PTT" && (
+        {/* Status indicator showing listening/muted state */}
+        {isActive && (
           <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50">
-            <button
-              onMouseDown={startPTT}
-              onMouseUp={stopPTT}
-              onMouseLeave={stopPTT}
-              onTouchStart={startPTT}
-              onTouchEnd={stopPTT}
-              className={`flex items-center justify-center px-8 py-4 rounded-full font-bold text-white shadow-lg transition-all duration-300 hover:scale-105 active:scale-95 ${isRecordingPTT
-                ? "bg-red-500 drop-shadow-[0_0_15px_rgba(239,68,68,0.8)]"
-                : "bg-blue-600 hover:bg-blue-700 drop-shadow-[0_0_10px_rgba(37,99,235,0.5)]"
-                }`}
+            <div
+              className={`flex items-center gap-3 px-6 py-3 rounded-full font-medium text-white shadow-lg backdrop-blur-md transition-all duration-500 ${
+                isAvatarTalking
+                  ? "bg-purple-600/70 border border-purple-400/40"
+                  : isUserTalking
+                    ? "bg-green-600/70 border border-green-400/40"
+                    : "bg-white/10 border border-white/20"
+              }`}
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="mr-2"
-              >
-                <path d="M12 19v3" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                <rect x="9" y="2" width="6" height="13" rx="3" />
-              </svg>
-              {isRecordingPTT ? "Release to Send" : "Hold to Speak"}
-            </button>
+              {/* Animated mic icon */}
+              <div className="relative">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 19v3" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <rect x="9" y="2" width="6" height="13" rx="3" />
+                </svg>
+                {/* Muted slash overlay */}
+                {isMuted && (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    className="absolute inset-0 text-red-400"
+                  >
+                    <path d="M2 2 22 22" />
+                  </svg>
+                )}
+                {/* Pulsing ring when user is talking */}
+                {isUserTalking && !isMuted && (
+                  <span className="absolute -inset-1 rounded-full border-2 border-green-400 animate-ping opacity-75" />
+                )}
+              </div>
+              <span className="text-sm">
+                {isAvatarTalking
+                  ? "Avatar is speaking..."
+                  : isUserTalking
+                    ? "Listening..."
+                    : "Ready to listen"}
+              </span>
+            </div>
           </div>
         )}
         <div className="absolute bottom-8 right-8 z-50">
@@ -210,10 +203,6 @@ const LiveAvatarSessionComponent: React.FC<{
           </button>
         </div>
       </div>
-
-      {/* Hidden container for necessary elements? No, standard HTML video element is enough. 
-          The debug info is removed. 
-      */}
     </div>
   );
 };

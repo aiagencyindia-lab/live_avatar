@@ -129,7 +129,7 @@ export const LiveAvatarDemo = () => {
               {/* Bottom Bar: Action Button */}
               <div className="flex justify-end items-end">
                 <button
-                  onClick={() => handleStartFullSession(true)}
+                  onClick={() => handleStartFullSession(false)}
                   disabled={isLoading}
                   className={`
                     group relative flex items-center justify-center

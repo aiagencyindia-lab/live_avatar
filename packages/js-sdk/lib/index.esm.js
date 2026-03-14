@@ -517,6 +517,12 @@ class VoiceChat extends EventEmitter {
                 echoCancellation: true,
                 noiseSuppression: true,
                 autoGainControl: true,
+                channelCount: 1,
+                // Advanced constraints for better noise reduction
+                // @ts-ignore - these are Chrome/WebRTC-specific constraints
+                googNoiseSuppression: true,
+                googHighpassFilter: true,
+                googTypingNoiseDetection: true,
                 deviceId,
             });
             if (defaultMuted) {
