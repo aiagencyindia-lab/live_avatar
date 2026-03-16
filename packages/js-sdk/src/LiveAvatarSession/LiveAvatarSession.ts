@@ -43,6 +43,11 @@ const HEYGEN_PARTICIPANT_ID = "heygen";
 export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
   SessionEventCallbacks & AgentEventCallbacks
 >) {
+  private static readonly WS_CONNECT_TIMEOUT_MS = 10_000;
+  private static readonly WS_MAX_RECONNECT_ATTEMPTS = 3;
+
+  private _wsUrl: string | null = null;
+  private _wsReconnectAttempts = 0;
   private readonly sessionClient: SessionAPIClient;
 
   // Additional session configurations that can be managed
@@ -331,10 +336,28 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
   }
 
   private async connectWebSocket(websocketUrl: string): Promise<void> {
-    return new Promise((resolve, _reject) => {
+    this._wsUrl = websocketUrl;
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        if (this._sessionEventSocket) {
+          this._sessionEventSocket.onopen = null;
+          this._sessionEventSocket.onerror = null;
+          this._sessionEventSocket.close();
+          this._sessionEventSocket = null;
+        }
+        reject(new Error("WebSocket connection timed out"));
+      }, LiveAvatarSession.WS_CONNECT_TIMEOUT_MS);
+
       this._sessionEventSocket = new WebSocket(websocketUrl);
       this._sessionEventSocket.onopen = () => {
+        clearTimeout(timeout);
+        this._wsReconnectAttempts = 0;
         resolve();
+      };
+      this._sessionEventSocket.onerror = (error) => {
+        clearTimeout(timeout);
+        console.error("WebSocket connection error:", error);
+        reject(new Error("WebSocket connection failed"));
       };
     });
   }
@@ -379,20 +402,52 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
     }
 
     const { type, event_id } = eventData;
-    if (type === "agent.speak_started") {
-      this.emit(AgentEventsEnum.AVATAR_SPEAK_STARTED, {
-        event_type: AgentEventsEnum.AVATAR_SPEAK_STARTED,
-        event_id: event_id,
-      });
-    } else if (type === "agent.speak_ended") {
-      this.emit(AgentEventsEnum.AVATAR_SPEAK_ENDED, {
-        event_type: AgentEventsEnum.AVATAR_SPEAK_ENDED,
-        event_id: event_id,
-      });
+    switch (type) {
+      case "agent.speak_started":
+        this.emit(AgentEventsEnum.AVATAR_SPEAK_STARTED, {
+          event_type: AgentEventsEnum.AVATAR_SPEAK_STARTED,
+          event_id: event_id,
+        });
+        break;
+      case "agent.speak_ended":
+        this.emit(AgentEventsEnum.AVATAR_SPEAK_ENDED, {
+          event_type: AgentEventsEnum.AVATAR_SPEAK_ENDED,
+          event_id: event_id,
+        });
+        break;
+      case "user.speak_started":
+        this.emit(AgentEventsEnum.USER_SPEAK_STARTED, {
+          event_type: AgentEventsEnum.USER_SPEAK_STARTED,
+          event_id: event_id,
+        });
+        break;
+      case "user.speak_ended":
+        this.emit(AgentEventsEnum.USER_SPEAK_ENDED, {
+          event_type: AgentEventsEnum.USER_SPEAK_ENDED,
+          event_id: event_id,
+        });
+        break;
+      case "user.transcription":
+        this.emit(AgentEventsEnum.USER_TRANSCRIPTION, {
+          event_type: AgentEventsEnum.USER_TRANSCRIPTION,
+          event_id: event_id,
+          text: eventData.text || "",
+        });
+        break;
+      case "avatar.transcription":
+        this.emit(AgentEventsEnum.AVATAR_TRANSCRIPTION, {
+          event_type: AgentEventsEnum.AVATAR_TRANSCRIPTION,
+          event_id: event_id,
+          text: eventData.text || "",
+        });
+        break;
+      default:
+        // Don't log known internal types as unsupported
+        break;
     }
   }
 
-  private handleWebSocketDisconnect(): void {
+  private async handleWebSocketDisconnect(): Promise<void> {
     if (
       this.state === SessionState.DISCONNECTING ||
       this.state === SessionState.DISCONNECTED
@@ -400,6 +455,30 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
       return;
     }
 
+    // Attempt auto-reconnect before giving up
+    if (
+      this._wsUrl &&
+      this._wsReconnectAttempts < LiveAvatarSession.WS_MAX_RECONNECT_ATTEMPTS
+    ) {
+      this._wsReconnectAttempts++;
+      const delay = Math.min(1000 * Math.pow(2, this._wsReconnectAttempts - 1), 8000);
+      console.warn(
+        `WebSocket disconnected. Reconnect attempt ${this._wsReconnectAttempts}/${LiveAvatarSession.WS_MAX_RECONNECT_ATTEMPTS} in ${delay}ms...`,
+      );
+
+      await new Promise((r) => setTimeout(r, delay));
+
+      try {
+        await this.connectWebSocket(this._wsUrl);
+        this.setupWebSocketManagement();
+        console.log("WebSocket reconnected successfully");
+        return;
+      } catch (e) {
+        console.error("WebSocket reconnect failed:", e);
+      }
+    }
+
+    // All reconnect attempts exhausted — clean up
     if (
       this._sessionEventSocket &&
       this._sessionEventSocket.readyState === WebSocket.OPEN
@@ -538,6 +617,24 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
           }),
         );
         return;
+      case CommandEventsEnum.AVATAR_SPEAK_TEXT:
+        this._sessionEventSocket.send(
+          JSON.stringify({
+            type: "agent.speak_text",
+            event_id: event_id,
+            text: commandEvent.text,
+          }),
+        );
+        return;
+      case CommandEventsEnum.AVATAR_SPEAK_RESPONSE:
+        this._sessionEventSocket.send(
+          JSON.stringify({
+            type: "agent.speak_response",
+            event_id: event_id,
+            text: commandEvent.text,
+          }),
+        );
+        return;
       case CommandEventsEnum.AVATAR_INTERRUPT:
         this._sessionEventSocket.send(
           JSON.stringify({
@@ -563,7 +660,15 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
         );
         return;
       default:
-        console.warn("Unsupported command event type:", event_type);
+        // Fallback: try sending via LiveKit data channel instead of silently dropping
+        console.warn("Unhandled WS command type, falling back to LiveKit:", event_type);
+        if (this.room.state === "connected") {
+          const data = new TextEncoder().encode(JSON.stringify(commandEvent));
+          this.room.localParticipant.publishData(data, {
+            reliable: true,
+            topic: LIVEKIT_COMMAND_CHANNEL_TOPIC,
+          });
+        }
         break;
     }
   }

@@ -4,7 +4,7 @@ export const AVATAR_ID = process.env.HEYGEN_AVATAR_ID || "6e95b03b-3efb-4f78-ade
 
 // When true, we will call everything in Sandbox mode.
 // Useful for integration and development.
-export const IS_SANDBOX = process.env.HEYGEN_IS_SANDBOX === "false";
+export const IS_SANDBOX = process.env.HEYGEN_IS_SANDBOX == "false";
 
 // FULL MODE Customizations
 // Wayne's avatar voice and context

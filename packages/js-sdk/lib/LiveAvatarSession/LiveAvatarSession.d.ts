@@ -5,6 +5,10 @@ import { ConnectionQuality } from "../QualityIndicator";
 import { VoiceChat } from "../VoiceChat";
 declare const LiveAvatarSession_base: new () => TypedEmitter<SessionEventCallbacks & AgentEventCallbacks>;
 export declare class LiveAvatarSession extends LiveAvatarSession_base {
+    private static readonly WS_CONNECT_TIMEOUT_MS;
+    private static readonly WS_MAX_RECONNECT_ATTEMPTS;
+    private _wsUrl;
+    private _wsReconnectAttempts;
     private readonly sessionClient;
     private readonly config;
     private readonly room;

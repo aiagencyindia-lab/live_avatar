@@ -71,6 +71,11 @@ const LiveAvatarSessionComponent: React.FC<{
 
   // Track whether we auto-muted (so we don't override manual mute)
   const autoMutedRef = useRef(false);
+  const unmuteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Keep a ref to voiceChat functions to avoid stale closures
+  const voiceChatRef = useRef({ mute, unmute });
+  voiceChatRef.current = { mute, unmute };
 
   useEffect(() => {
     if (sessionState === SessionState.DISCONNECTED) {
@@ -91,25 +96,52 @@ const LiveAvatarSessionComponent: React.FC<{
     }
   }, [startSession, sessionState]);
 
+  // Keep-alive: ping HeyGen every 30 seconds to prevent session timeout
+  useEffect(() => {
+    if (sessionState !== SessionState.CONNECTED) return;
+
+    const keepAliveInterval = setInterval(() => {
+      keepAlive().catch((err) => {
+        console.warn("Keep-alive ping failed (non-fatal):", err);
+      });
+    }, 30_000);
+
+    return () => clearInterval(keepAliveInterval);
+  }, [sessionState, keepAlive]);
+
   // Auto-mute when avatar is speaking to prevent interruption,
-  // auto-unmute when avatar finishes speaking
+  // auto-unmute (with delay) when avatar finishes speaking.
+  // NOTE: isMuted is intentionally NOT in the dependency array to prevent
+  // re-trigger loops. We read the muted state directly from the ref.
   useEffect(() => {
     if (!isActive) return;
 
     if (isAvatarTalking) {
-      // Avatar started speaking - mute user mic to prevent interruption
-      if (!isMuted) {
-        mute();
-        autoMutedRef.current = true;
+      // Clear any pending unmute timer
+      if (unmuteTimerRef.current) {
+        clearTimeout(unmuteTimerRef.current);
+        unmuteTimerRef.current = null;
       }
-    } else {
-      // Avatar stopped speaking - unmute user mic so they can ask next question
-      if (autoMutedRef.current && isMuted) {
-        unmute();
+      // Avatar started speaking - mute user mic to prevent echo/interruption
+      voiceChatRef.current.mute();
+      autoMutedRef.current = true;
+    } else if (autoMutedRef.current) {
+      // Avatar stopped speaking - wait 800ms for echo to dissipate,
+      // then unmute so user can ask their next question
+      unmuteTimerRef.current = setTimeout(() => {
+        voiceChatRef.current.unmute();
         autoMutedRef.current = false;
-      }
+        unmuteTimerRef.current = null;
+      }, 800);
     }
-  }, [isAvatarTalking, isActive, isMuted, mute, unmute]);
+
+    return () => {
+      if (unmuteTimerRef.current) {
+        clearTimeout(unmuteTimerRef.current);
+        unmuteTimerRef.current = null;
+      }
+    };
+  }, [isAvatarTalking, isActive]);
 
   return (
     <div className="w-full h-full flex flex-col items-center justify-center bg-black relative">

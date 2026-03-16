@@ -658,6 +658,7 @@ class VoiceChat extends events.EventEmitter {
 
 const DEFAULT_ERROR_CODE = 500;
 const SUCCESS_CODE = 1000;
+const REQUEST_TIMEOUT_MS = 15000;
 class SessionApiError extends Error {
     constructor(message, errorCode, status) {
         super(message);
@@ -673,8 +674,10 @@ class SessionAPIClient {
     }
     request(path, params) {
         return __awaiter(this, void 0, void 0, function* () {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
             try {
-                const response = yield fetch(`${this.apiUrl}${path}`, Object.assign(Object.assign({}, params), { credentials: "include", headers: Object.assign({ Authorization: `Bearer ${this.sessionToken}`, "Content-Type": "application/json" }, params.headers) }));
+                const response = yield fetch(`${this.apiUrl}${path}`, Object.assign(Object.assign({}, params), { signal: controller.signal, credentials: "include", headers: Object.assign({ Authorization: `Bearer ${this.sessionToken}`, "Content-Type": "application/json" }, params.headers) }));
                 if (!response.ok) {
                     const data = yield response.json();
                     throw new SessionApiError(data.message || `API request failed with status ${response.status}`, data.code, response.status);
@@ -689,7 +692,13 @@ class SessionAPIClient {
                 if (err instanceof SessionApiError) {
                     throw err;
                 }
+                if (err instanceof DOMException && err.name === "AbortError") {
+                    throw new SessionApiError("API request timed out", DEFAULT_ERROR_CODE);
+                }
                 throw new SessionApiError("API request failed");
+            }
+            finally {
+                clearTimeout(timeout);
             }
         });
     }
@@ -700,7 +709,13 @@ class SessionAPIClient {
     }
     stopSession() {
         return __awaiter(this, void 0, void 0, function* () {
-            return yield this.request(`/v1/sessions/stop`, { method: "POST" });
+            try {
+                return yield this.request(`/v1/sessions/stop`, { method: "POST" });
+            }
+            catch (err) {
+                // Gracefully handle if the session is already expired/stopped on the server
+                console.warn("Stop session failed (session may already be expired):", err);
+            }
         });
     }
     keepAlive() {
@@ -733,6 +748,8 @@ const HEYGEN_PARTICIPANT_ID = "heygen";
 class LiveAvatarSession extends events.EventEmitter {
     constructor(sessionAccessToken, config) {
         super();
+        this._wsUrl = null;
+        this._wsReconnectAttempts = 0;
         this.connectionQualityIndicator = new ConnectionQualityIndicator((quality) => this.emit(exports.SessionEvent.SESSION_CONNECTION_QUALITY_CHANGED, quality));
         this._sessionInfo = null;
         this._sessionEventSocket = null;
@@ -960,10 +977,27 @@ class LiveAvatarSession extends events.EventEmitter {
     }
     connectWebSocket(websocketUrl) {
         return __awaiter(this, void 0, void 0, function* () {
-            return new Promise((resolve, _reject) => {
+            this._wsUrl = websocketUrl;
+            return new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    if (this._sessionEventSocket) {
+                        this._sessionEventSocket.onopen = null;
+                        this._sessionEventSocket.onerror = null;
+                        this._sessionEventSocket.close();
+                        this._sessionEventSocket = null;
+                    }
+                    reject(new Error("WebSocket connection timed out"));
+                }, LiveAvatarSession.WS_CONNECT_TIMEOUT_MS);
                 this._sessionEventSocket = new WebSocket(websocketUrl);
                 this._sessionEventSocket.onopen = () => {
+                    clearTimeout(timeout);
+                    this._wsReconnectAttempts = 0;
                     resolve();
+                };
+                this._sessionEventSocket.onerror = (error) => {
+                    clearTimeout(timeout);
+                    console.error("WebSocket connection error:", error);
+                    reject(new Error("WebSocket connection failed"));
                 };
             });
         });
@@ -996,31 +1030,79 @@ class LiveAvatarSession extends events.EventEmitter {
             return;
         }
         const { type, event_id } = eventData;
-        if (type === "agent.speak_started") {
-            this.emit(exports.AgentEventsEnum.AVATAR_SPEAK_STARTED, {
-                event_type: exports.AgentEventsEnum.AVATAR_SPEAK_STARTED,
-                event_id: event_id,
-            });
-        }
-        else if (type === "agent.speak_ended") {
-            this.emit(exports.AgentEventsEnum.AVATAR_SPEAK_ENDED, {
-                event_type: exports.AgentEventsEnum.AVATAR_SPEAK_ENDED,
-                event_id: event_id,
-            });
+        switch (type) {
+            case "agent.speak_started":
+                this.emit(exports.AgentEventsEnum.AVATAR_SPEAK_STARTED, {
+                    event_type: exports.AgentEventsEnum.AVATAR_SPEAK_STARTED,
+                    event_id: event_id,
+                });
+                break;
+            case "agent.speak_ended":
+                this.emit(exports.AgentEventsEnum.AVATAR_SPEAK_ENDED, {
+                    event_type: exports.AgentEventsEnum.AVATAR_SPEAK_ENDED,
+                    event_id: event_id,
+                });
+                break;
+            case "user.speak_started":
+                this.emit(exports.AgentEventsEnum.USER_SPEAK_STARTED, {
+                    event_type: exports.AgentEventsEnum.USER_SPEAK_STARTED,
+                    event_id: event_id,
+                });
+                break;
+            case "user.speak_ended":
+                this.emit(exports.AgentEventsEnum.USER_SPEAK_ENDED, {
+                    event_type: exports.AgentEventsEnum.USER_SPEAK_ENDED,
+                    event_id: event_id,
+                });
+                break;
+            case "user.transcription":
+                this.emit(exports.AgentEventsEnum.USER_TRANSCRIPTION, {
+                    event_type: exports.AgentEventsEnum.USER_TRANSCRIPTION,
+                    event_id: event_id,
+                    text: eventData.text || "",
+                });
+                break;
+            case "avatar.transcription":
+                this.emit(exports.AgentEventsEnum.AVATAR_TRANSCRIPTION, {
+                    event_type: exports.AgentEventsEnum.AVATAR_TRANSCRIPTION,
+                    event_id: event_id,
+                    text: eventData.text || "",
+                });
+                break;
         }
     }
     handleWebSocketDisconnect() {
-        if (this.state === exports.SessionState.DISCONNECTING ||
-            this.state === exports.SessionState.DISCONNECTED) {
-            return;
-        }
-        if (this._sessionEventSocket &&
-            this._sessionEventSocket.readyState === WebSocket.OPEN) {
-            this._sessionEventSocket.close();
-        }
-        this._sessionEventSocket = null;
-        this.cleanup();
-        this.postStop(exports.SessionDisconnectReason.UNKNOWN_REASON);
+        return __awaiter(this, void 0, void 0, function* () {
+            if (this.state === exports.SessionState.DISCONNECTING ||
+                this.state === exports.SessionState.DISCONNECTED) {
+                return;
+            }
+            // Attempt auto-reconnect before giving up
+            if (this._wsUrl &&
+                this._wsReconnectAttempts < LiveAvatarSession.WS_MAX_RECONNECT_ATTEMPTS) {
+                this._wsReconnectAttempts++;
+                const delay = Math.min(1000 * Math.pow(2, this._wsReconnectAttempts - 1), 8000);
+                console.warn(`WebSocket disconnected. Reconnect attempt ${this._wsReconnectAttempts}/${LiveAvatarSession.WS_MAX_RECONNECT_ATTEMPTS} in ${delay}ms...`);
+                yield new Promise((r) => setTimeout(r, delay));
+                try {
+                    yield this.connectWebSocket(this._wsUrl);
+                    this.setupWebSocketManagement();
+                    console.log("WebSocket reconnected successfully");
+                    return;
+                }
+                catch (e) {
+                    console.error("WebSocket reconnect failed:", e);
+                }
+            }
+            // All reconnect attempts exhausted — clean up
+            if (this._sessionEventSocket &&
+                this._sessionEventSocket.readyState === WebSocket.OPEN) {
+                this._sessionEventSocket.close();
+            }
+            this._sessionEventSocket = null;
+            this.cleanup();
+            this.postStop(exports.SessionDisconnectReason.UNKNOWN_REASON);
+        });
     }
     configureSession() {
         return __awaiter(this, void 0, void 0, function* () {
@@ -1132,6 +1214,20 @@ class LiveAvatarSession extends events.EventEmitter {
                     event_id: event_id,
                 }));
                 return;
+            case exports.CommandEventsEnum.AVATAR_SPEAK_TEXT:
+                this._sessionEventSocket.send(JSON.stringify({
+                    type: "agent.speak_text",
+                    event_id: event_id,
+                    text: commandEvent.text,
+                }));
+                return;
+            case exports.CommandEventsEnum.AVATAR_SPEAK_RESPONSE:
+                this._sessionEventSocket.send(JSON.stringify({
+                    type: "agent.speak_response",
+                    event_id: event_id,
+                    text: commandEvent.text,
+                }));
+                return;
             case exports.CommandEventsEnum.AVATAR_INTERRUPT:
                 this._sessionEventSocket.send(JSON.stringify({
                     type: "agent.interrupt",
@@ -1151,7 +1247,15 @@ class LiveAvatarSession extends events.EventEmitter {
                 }));
                 return;
             default:
-                console.warn("Unsupported command event type:", event_type);
+                // Fallback: try sending via LiveKit data channel instead of silently dropping
+                console.warn("Unhandled WS command type, falling back to LiveKit:", event_type);
+                if (this.room.state === "connected") {
+                    const data = new TextEncoder().encode(JSON.stringify(commandEvent));
+                    this.room.localParticipant.publishData(data, {
+                        reliable: true,
+                        topic: LIVEKIT_COMMAND_CHANNEL_TOPIC,
+                    });
+                }
                 break;
         }
     }
@@ -1163,5 +1267,7 @@ class LiveAvatarSession extends events.EventEmitter {
         return true;
     }
 }
+LiveAvatarSession.WS_CONNECT_TIMEOUT_MS = 10000;
+LiveAvatarSession.WS_MAX_RECONNECT_ATTEMPTS = 3;
 
 exports.LiveAvatarSession = LiveAvatarSession;

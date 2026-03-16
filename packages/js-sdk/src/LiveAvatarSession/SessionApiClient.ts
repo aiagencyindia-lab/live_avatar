@@ -3,6 +3,7 @@ import { SessionInfo } from "./types";
 
 const DEFAULT_ERROR_CODE = 500;
 const SUCCESS_CODE = 1000;
+const REQUEST_TIMEOUT_MS = 15_000;
 
 export class SessionApiError extends Error {
   errorCode: number;
@@ -28,9 +29,13 @@ export class SessionAPIClient {
     path: string,
     params: RequestInit,
   ): Promise<T> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
     try {
       const response = await fetch(`${this.apiUrl}${path}`, {
         ...params,
+        signal: controller.signal,
         credentials: "include",
         headers: {
           Authorization: `Bearer ${this.sessionToken}`,
@@ -59,7 +64,12 @@ export class SessionAPIClient {
       if (err instanceof SessionApiError) {
         throw err;
       }
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new SessionApiError("API request timed out", DEFAULT_ERROR_CODE);
+      }
       throw new SessionApiError("API request failed");
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -68,7 +78,12 @@ export class SessionAPIClient {
   }
 
   public async stopSession(): Promise<void> {
-    return await this.request(`/v1/sessions/stop`, { method: "POST" });
+    try {
+      return await this.request(`/v1/sessions/stop`, { method: "POST" });
+    } catch (err) {
+      // Gracefully handle if the session is already expired/stopped on the server
+      console.warn("Stop session failed (session may already be expired):", err);
+    }
   }
 
   public async keepAlive(): Promise<void> {
