@@ -8,6 +8,7 @@ import {
     LANGUAGE,
 } from "../secrets";
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function POST(request: NextRequest) {
     try {
         // 1. Get Session Token

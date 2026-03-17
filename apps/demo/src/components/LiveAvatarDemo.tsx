@@ -33,8 +33,7 @@ export const LiveAvatarDemo = () => {
   const [streamReady, setStreamReady] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Default to Full Duplex (false)
-  const handleStartFullSession = async (pushToTalk: boolean = false) => {
+  const handleStartSession = async (pushToTalk: boolean = false, sessionMode: SessionMode = "FULL") => {
     setIsLoading(true);
     try {
       const res = await fetch("/api/start-session", {
@@ -42,27 +41,22 @@ export const LiveAvatarDemo = () => {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ pushToTalk }),
+        body: JSON.stringify({ pushToTalk, mode: sessionMode }),
       });
       if (!res.ok) {
         const error = await res.json();
-        console.error("Failed to start full session", error);
+        console.error("Failed to start session", error);
         setError(error.error);
         setIsLoading(false);
         return;
       }
       const { session_token } = await res.json();
       setSessionToken(session_token);
-      setMode(pushToTalk ? "FULL_PTT" : "FULL");
+      setMode(pushToTalk ? "FULL_PTT" : sessionMode);
     } catch (error: unknown) {
       setError((error as Error).message);
       setIsLoading(false);
     }
-    // Note: We do NOT set isLoading(false) here if successful, 
-    // because we want to keep the "Loading" state (or just the idle video) 
-    // until the stream is actually ready.
-    // However, the button loading state should probably stop so the user knows it was clicked.
-    // Let's keep button loading false, but use a separate state for the transition.
     setIsLoading(false);
   };
 
@@ -80,6 +74,11 @@ export const LiveAvatarDemo = () => {
       return {
         mode: SessionInteractivityMode.PUSH_TO_TALK,
       };
+    }
+    if (mode === "CUSTOM") {
+      // In CUSTOM mode, we handle STT ourselves via browser SpeechRecognition.
+      // Disable LiveKit voice chat to avoid mic conflicts and unnecessary audio streaming.
+      return false;
     }
     return true;
   }, [mode]);
@@ -127,25 +126,47 @@ export const LiveAvatarDemo = () => {
               </div>
 
               {/* Bottom Bar: Action Button */}
-              <div className="flex justify-end items-end">
+              <div className="flex justify-end items-end gap-4">
                 <button
-                  onClick={() => handleStartFullSession(false)}
+                  onClick={() => handleStartSession(false, "FULL")}
                   disabled={isLoading}
                   className={`
-                    group relative flex items-center justify-center
-                    w-16 h-16 rounded-full 
+                    group relative flex items-center justify-center gap-2 px-6
+                    h-14 rounded-full font-medium text-lg
                     bg-white/10 hover:bg-white/20 backdrop-blur-md
                     border border-white/20 hover:border-white/40
                     transition-all duration-300 ease-out
-                    ${isLoading ? "opacity-50 cursor-not-allowed scale-95" : "hover:scale-110 active:scale-95"}
+                    ${isLoading ? "opacity-50 cursor-not-allowed scale-95" : "hover:scale-105 active:scale-95"}
                   `}
-                  aria-label="Start Conversation"
+                  aria-label="Start Full Mode"
                 >
                   {isLoading ? (
-                    <div className="w-6 h-6 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                    <div className="w-5 h-5 border-2 border-white/50 border-t-white rounded-full animate-spin" />
                   ) : (
-                    <MicIcon className="w-8 h-8 text-white group-hover:drop-shadow-[0_0_8px_rgba(255,255,255,0.8)] transition-all" />
+                    <MicIcon className="w-6 h-6 text-white group-hover:drop-shadow-[0_0_8px_rgba(255,255,255,0.8)] transition-all" />
                   )}
+                  Full Mode
+                </button>
+                
+                <button
+                  onClick={() => handleStartSession(false, "CUSTOM")}
+                  disabled={isLoading}
+                  className={`
+                    group relative flex items-center justify-center gap-2 px-6
+                    h-14 rounded-full font-medium text-lg
+                    bg-gradient-to-r from-purple-600/60 to-blue-600/60 hover:from-purple-500/80 hover:to-blue-500/80 backdrop-blur-md
+                    border border-white/20 hover:border-white/40
+                    transition-all duration-300 ease-out shadow-[0_0_15px_rgba(168,85,247,0.4)]
+                    ${isLoading ? "opacity-50 cursor-not-allowed scale-95" : "hover:scale-105 active:scale-95"}
+                  `}
+                  aria-label="Start Custom Mode"
+                >
+                  {isLoading ? (
+                    <div className="w-5 h-5 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <MicIcon className="w-6 h-6 text-white group-hover:drop-shadow-[0_0_8px_rgba(255,255,255,0.8)] transition-all" />
+                  )}
+                  Custom Mode (Ultra Fast)
                 </button>
               </div>
             </div>

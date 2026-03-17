@@ -9,35 +9,49 @@ import {
   IS_SANDBOX,
 } from "../secrets";
 
-interface StartFullModeSessionRequestBody {
+interface StartSessionRequestBody {
   pushToTalk?: boolean;
+  mode?: "FULL" | "CUSTOM";
 }
 
 export async function POST(request: NextRequest) {
   let session_token = "";
   let session_id = "";
   try {
-    const body: StartFullModeSessionRequestBody = await request
+    const body: StartSessionRequestBody = await request
       .json()
       .catch(() => ({}));
     const pushToTalk = body.pushToTalk === true;
+    const mode = body.mode || "FULL";
+    
+    // CUSTOM mode payload doesn't need avatar_persona
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const payload: any = {
+      mode: mode,
+      avatar_id: AVATAR_ID,
+      is_sandbox: IS_SANDBOX,
+    };
+    
+    if (mode === "FULL") {
+        payload.avatar_persona = {
+          voice_id: VOICE_ID,
+          context_id: CONTEXT_ID,
+          language: LANGUAGE,
+        };
+    }
+    // CUSTOM mode: no avatar_persona needed — we handle LLM + TTS ourselves
+    
+    if (pushToTalk) {
+      payload.interactivity_type = "PUSH_TO_TALK";
+    }
+
     const res = await fetch(`${API_URL}/v1/sessions/token`, {
       method: "POST",
       headers: {
         "X-API-KEY": API_KEY,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        mode: "FULL",
-        avatar_id: AVATAR_ID,
-        avatar_persona: {
-          voice_id: VOICE_ID,
-          context_id: CONTEXT_ID,
-          language: LANGUAGE,
-        },
-        ...(pushToTalk && { interactivity_type: "PUSH_TO_TALK" }),
-        is_sandbox: IS_SANDBOX,
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) {

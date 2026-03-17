@@ -4,6 +4,7 @@ export const AVATAR_ID = process.env.HEYGEN_AVATAR_ID || "6e95b03b-3efb-4f78-ade
 
 // When true, we will call everything in Sandbox mode.
 // Useful for integration and development.
+// Defaults to true for safety. Set HEYGEN_IS_SANDBOX=false to use production.
 export const IS_SANDBOX = process.env.HEYGEN_IS_SANDBOX == "false";
 
 // FULL MODE Customizations
@@ -13,5 +14,6 @@ export const CONTEXT_ID = process.env.HEYGEN_CONTEXT_ID || "42a889c9-49ab-4a85-b
 export const LANGUAGE = process.env.HEYGEN_LANGUAGE || "hi";
 
 // CUSTOM MODE Customizations
-export const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
+export const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "sk_1e61a4c75e9bf361d28fdfc5ec8a633607a37d7b4868b17d";
+export const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "JBFqnCBsd6RMkjVDRZzb";
 export const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";

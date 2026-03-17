@@ -1,9 +1,9 @@
-import { ELEVENLABS_API_KEY } from "../secrets";
+import { ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID } from "../secrets";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { text, voice_id = "21m00Tcm4TlvDq8ikWAM" } = body;
+    const { text, voice_id = ELEVENLABS_VOICE_ID } = body;
 
     if (!text) {
       return new Response(JSON.stringify({ error: "text is required" }), {

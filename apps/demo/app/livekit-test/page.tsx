@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 // We are using livekit-client DIRECTLY here, bypassing the HeyGen SDK wrapper
-import { Room, RoomEvent, VideoPresets, RemoteVideoTrack, RemoteAudioTrack } from "livekit-client";
+import { Room, RoomEvent, VideoPresets } from "livekit-client";
 
 export default function LiveKitDirectPage() {
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -31,7 +31,7 @@ export default function LiveKitDirectPage() {
             });
 
             // 3. Set up track listeners
-            newRoom.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+            newRoom.on(RoomEvent.TrackSubscribed, (track) => {
                 // We only care about the "heygen" participant (or whoever is sending video)
                 if (track.kind === "video" || track.kind === "audio") {
                     if (videoRef.current) {

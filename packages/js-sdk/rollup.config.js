@@ -52,7 +52,7 @@ export default [
     ],
     plugins: [
       json(),
-      resolve({ browser: true }), // Bundle dependencies
+      resolve({ browser: true, preferBuiltins: false }), // Bundle dependencies
       commonjs(),
       typescript({
         declaration: false, // No need for .d.ts in bundled version
