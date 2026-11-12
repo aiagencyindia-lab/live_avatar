@@ -3,9 +3,7 @@ import {
   API_KEY,
   API_URL,
   AVATAR_ID,
-  VOICE_ID,
-  CONTEXT_ID,
-  LANGUAGE,
+  AVATAR_PERSONA,
   IS_SANDBOX,
 } from "../secrets";
 
@@ -30,11 +28,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         mode: "FULL",
         avatar_id: AVATAR_ID,
-        avatar_persona: {
-          voice_id: VOICE_ID,
-          context_id: CONTEXT_ID,
-          language: LANGUAGE,
-        },
+        avatar_persona: AVATAR_PERSONA,
         ...(pushToTalk && { interactivity_type: "PUSH_TO_TALK" }),
         is_sandbox: IS_SANDBOX,
       }),

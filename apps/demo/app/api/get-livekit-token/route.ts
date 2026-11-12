@@ -3,9 +3,7 @@ import {
     API_KEY,
     API_URL,
     AVATAR_ID,
-    VOICE_ID,
-    CONTEXT_ID,
-    LANGUAGE,
+    AVATAR_PERSONA,
 } from "../secrets";
 
 export async function POST(request: NextRequest) {
@@ -20,11 +18,7 @@ export async function POST(request: NextRequest) {
             body: JSON.stringify({
                 mode: "FULL", // Using FULL mode for simplicity in this demo
                 avatar_id: AVATAR_ID,
-                avatar_persona: {
-                    voice_id: VOICE_ID,
-                    context_id: CONTEXT_ID,
-                    language: LANGUAGE,
-                },
+                avatar_persona: AVATAR_PERSONA,
             }),
         });
 
