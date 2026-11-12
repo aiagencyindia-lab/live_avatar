@@ -20,9 +20,11 @@ export const LANGUAGE = process.env.HEYGEN_LANGUAGE || "hi";
 const VOICE_MODEL = process.env.HEYGEN_VOICE_MODEL || "eleven_multilingual_v2";
 const VOICE_STABILITY = Number(process.env.HEYGEN_VOICE_STABILITY || "0.75");
 
-// Speech recognition provider: deepgram | elevenlabs | gladia.
-// Set HEYGEN_STT_PROVIDER=auto to let HeyGen choose.
-const STT_PROVIDER = process.env.HEYGEN_STT_PROVIDER || "elevenlabs";
+// Speech recognition provider. "auto" lets HeyGen choose and is the tested
+// default. "gladia" and "deepgram" also work. Do NOT use "elevenlabs": it
+// transcribes well but takes ~20s to decide the visitor has finished
+// speaking, so the avatar appears not to answer.
+const STT_PROVIDER = process.env.HEYGEN_STT_PROVIDER || "auto";
 
 // Optional: the model that writes the replies (gpt-4o, gpt-4o-mini, ...).
 // Unset uses HeyGen's default.
