@@ -34,6 +34,8 @@ const AVATAR_SILENCE_FAILSAFE_MS = 4_000;
 // Failsafe of last resort when the audio level cannot be measured.
 const AVATAR_TALKING_MAX_MS = 90_000;
 const AUDIO_LEVEL_THRESHOLD = 0.02;
+// How long the "Thinking..." status may stay up while waiting for a reply.
+const AWAITING_REPLY_MAX_MS = 12_000;
 
 // User-facing text for the reason the server gave for ending a session.
 const describeEndReason = (reason: string | null): string => {
@@ -218,6 +220,31 @@ const LiveAvatarSessionComponent: React.FC<{
   // The browser refused to play the avatar's audio without a tap.
   const [audioBlocked, setAudioBlocked] = useState(false);
   const audioMeterRef = useRef<AudioMeter | null>(null);
+  // True between the visitor finishing a sentence and the avatar starting
+  // its reply. Shown as "Thinking..." so the visitor waits instead of
+  // speaking again, which would interrupt the reply and restart it.
+  const [awaitingReply, setAwaitingReply] = useState(false);
+  const wasUserTalkingRef = useRef(false);
+
+  useEffect(() => {
+    if (isAvatarTalking || isUserTalking) {
+      setAwaitingReply(false);
+    } else if (wasUserTalkingRef.current) {
+      setAwaitingReply(true);
+    }
+    wasUserTalkingRef.current = isUserTalking;
+  }, [isUserTalking, isAvatarTalking]);
+
+  useEffect(() => {
+    if (!awaitingReply) {
+      return;
+    }
+    const timer = setTimeout(
+      () => setAwaitingReply(false),
+      AWAITING_REPLY_MAX_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [awaitingReply]);
 
   // Tell the parent the session is over, exactly once.
   const reportEnd = useCallback((info: SessionEndInfo) => {
@@ -432,7 +459,9 @@ const LiveAvatarSessionComponent: React.FC<{
                   ? "bg-purple-600/70 border border-purple-400/40"
                   : isUserTalking
                     ? "bg-green-600/70 border border-green-400/40"
-                    : "bg-white/10 border border-white/20"
+                    : awaitingReply
+                      ? "bg-amber-600/70 border border-amber-400/40"
+                      : "bg-white/10 border border-white/20"
               }`}
             >
               {/* Animated mic icon */}
@@ -478,7 +507,9 @@ const LiveAvatarSessionComponent: React.FC<{
                   ? "Avatar is speaking..."
                   : isUserTalking
                     ? "Listening..."
-                    : "Ready to listen"}
+                    : awaitingReply
+                      ? "Thinking... please wait"
+                      : "Ready to listen"}
               </span>
             </div>
           </div>
