@@ -7,6 +7,8 @@ declare const LiveAvatarSession_base: new () => TypedEmitter<SessionEventCallbac
 export declare class LiveAvatarSession extends LiveAvatarSession_base {
     private static readonly WS_CONNECT_TIMEOUT_MS;
     private static readonly WS_MAX_RECONNECT_ATTEMPTS;
+    private _endReason;
+    private _avatarLeftTimer;
     private _wsUrl;
     private _wsReconnectAttempts;
     private readonly sessionClient;
@@ -23,6 +25,11 @@ export declare class LiveAvatarSession extends LiveAvatarSession_base {
     get state(): SessionState;
     get connectionQuality(): ConnectionQuality;
     get voiceChat(): VoiceChat;
+    /**
+     * Why the server ended the session (e.g. IDLE_TIMEOUT, MAX_DURATION_REACHED,
+     * NO_CREDITS), or null if it was not ended by the server.
+     */
+    get endReason(): string | null;
     get maxSessionDuration(): number | null;
     start(): Promise<void>;
     stop(): Promise<void>;
@@ -41,6 +48,8 @@ export declare class LiveAvatarSession extends LiveAvatarSession_base {
     private handleWebSocketDisconnect;
     private configureSession;
     private set state(value);
+    private clearAvatarLeftTimer;
+    private handleServerStop;
     private cleanup;
     private postStop;
     private handleRoomDisconnect;

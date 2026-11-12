@@ -1,10 +1,34 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { LiveAvatarSession } from "./LiveAvatarSession";
+import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  LiveAvatarSession,
+  SessionEndInfo,
+  describeStartError,
+} from "./LiveAvatarSession";
 import { SessionInteractivityMode } from "@heygen/liveavatar-web-sdk";
 
 export type SessionMode = "FULL" | "FULL_PTT" | "CUSTOM";
+
+// How many times a failed connection is retried before showing the error.
+const MAX_AUTO_RETRIES = 1;
+
+// Ask for the microphone before a session is created. A session costs
+// credits from the moment it starts, so a blocked or missing mic should be
+// reported first rather than after the session is already running.
+// Returns an error message, or null when the mic is usable.
+const checkMicrophone = async (): Promise<string | null> => {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return "The microphone is not available. Open this page over HTTPS in a supported browser.";
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((track) => track.stop());
+    return null;
+  } catch (err) {
+    return describeStartError(err).error ?? "The microphone could not be opened.";
+  }
+};
 
 const MicIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg
@@ -31,11 +55,22 @@ export const LiveAvatarDemo = () => {
   const [error, setError] = useState<string | null>(null);
   // State to track if the live stream is ready
   const [streamReady, setStreamReady] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  // True from the moment the user taps the mic until the avatar is on
+  // screen or the attempt (including any automatic retry) has failed.
+  const [connecting, setConnecting] = useState(false);
+  const retryCountRef = useRef(0);
+  const pushToTalkRef = useRef(false);
 
-  // Default to Full Duplex (false)
-  const handleStartFullSession = async (pushToTalk: boolean = false) => {
-    setIsLoading(true);
+  const startFullSession = useCallback(async (pushToTalk: boolean) => {
+    pushToTalkRef.current = pushToTalk;
+    setConnecting(true);
+    setError(null);
+    const micError = await checkMicrophone();
+    if (micError) {
+      setError(micError);
+      setConnecting(false);
+      return;
+    }
     try {
       const res = await fetch("/api/start-session", {
         method: "POST",
@@ -45,35 +80,60 @@ export const LiveAvatarDemo = () => {
         body: JSON.stringify({ pushToTalk }),
       });
       if (!res.ok) {
-        const error = await res.json();
-        console.error("Failed to start full session", error);
-        setError(error.error);
-        setIsLoading(false);
-        return;
+        // The route does not always answer with JSON.
+        const body = await res.json().catch(() => null);
+        throw new Error(
+          body?.error || `Could not start the session (HTTP ${res.status})`,
+        );
       }
       const { session_token } = await res.json();
-      setSessionToken(session_token);
+      if (!session_token) {
+        throw new Error("Could not start the session (no session token)");
+      }
       setMode(pushToTalk ? "FULL_PTT" : "FULL");
+      setSessionToken(session_token);
     } catch (error: unknown) {
+      console.error("Failed to start full session", error);
       setError((error as Error).message);
-      setIsLoading(false);
+      setConnecting(false);
     }
-    // Note: We do NOT set isLoading(false) here if successful, 
-    // because we want to keep the "Loading" state (or just the idle video) 
-    // until the stream is actually ready.
-    // However, the button loading state should probably stop so the user knows it was clicked.
-    // Let's keep button loading false, but use a separate state for the transition.
-    setIsLoading(false);
+  }, []);
+
+  // Default to Full Duplex (false)
+  const handleStartFullSession = (pushToTalk: boolean = false) => {
+    retryCountRef.current = 0;
+    void startFullSession(pushToTalk);
   };
 
-  const onSessionStopped = () => {
-    setSessionToken("");
-    setStreamReady(false);
-  };
+  const onSessionEnded = useCallback(
+    (info: SessionEndInfo) => {
+      setSessionToken("");
+      setStreamReady(false);
 
-  const handleStreamReady = () => {
+      if (info.retryable && retryCountRef.current < MAX_AUTO_RETRIES) {
+        retryCountRef.current += 1;
+        console.warn(
+          `Session failed (${info.error}); retrying ${retryCountRef.current}/${MAX_AUTO_RETRIES}`,
+        );
+        void startFullSession(pushToTalkRef.current);
+        return;
+      }
+
+      setConnecting(false);
+      if (info.error) {
+        setError(info.error);
+      }
+    },
+    [startFullSession],
+  );
+
+  const handleStreamReady = useCallback(() => {
+    retryCountRef.current = 0;
+    setConnecting(false);
     setStreamReady(true);
-  };
+  }, []);
+
+  const isBusy = connecting || !!sessionToken;
 
   const voiceChatConfig = useMemo(() => {
     if (mode === "FULL_PTT") {
@@ -111,7 +171,7 @@ export const LiveAvatarDemo = () => {
             {/* Controls */}
             <div
               className={`absolute inset-0 z-10 p-8 flex flex-col justify-between transition-opacity duration-500
-                ${sessionToken ? "opacity-0 pointer-events-none" : "opacity-100"}
+                ${isBusy ? "opacity-0 pointer-events-none" : "opacity-100"}
               `}
             >
               {/* Top Bar (Optional: Title/Logo) */}
@@ -130,18 +190,18 @@ export const LiveAvatarDemo = () => {
               <div className="flex justify-end items-end">
                 <button
                   onClick={() => handleStartFullSession(false)}
-                  disabled={isLoading}
+                  disabled={isBusy}
                   className={`
                     group relative flex items-center justify-center
                     w-16 h-16 rounded-full 
                     bg-white/10 hover:bg-white/20 backdrop-blur-md
                     border border-white/20 hover:border-white/40
                     transition-all duration-300 ease-out
-                    ${isLoading ? "opacity-50 cursor-not-allowed scale-95" : "hover:scale-110 active:scale-95"}
+                    ${isBusy ? "opacity-50 cursor-not-allowed scale-95" : "hover:scale-110 active:scale-95"}
                   `}
                   aria-label="Start Conversation"
                 >
-                  {isLoading ? (
+                  {isBusy ? (
                     <div className="w-6 h-6 border-2 border-white/50 border-t-white rounded-full animate-spin" />
                   ) : (
                     <MicIcon className="w-8 h-8 text-white group-hover:drop-shadow-[0_0_8px_rgba(255,255,255,0.8)] transition-all" />
@@ -150,8 +210,8 @@ export const LiveAvatarDemo = () => {
               </div>
             </div>
 
-            {/* Loading Indicator (if session started but stream not ready) */}
-            {sessionToken && !streamReady && (
+            {/* Loading Indicator (connecting, or stream not ready yet) */}
+            {isBusy && !streamReady && (
               <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
                 <div className="w-12 h-12 border-4 border-white/20 border-t-white rounded-full animate-spin backdrop-blur-sm" />
               </div>
@@ -164,10 +224,12 @@ export const LiveAvatarDemo = () => {
       {sessionToken && (
         <div className="absolute inset-0 z-10 w-full h-full">
           <LiveAvatarSession
+            // A new token is a new session: never reuse the old instance.
+            key={sessionToken}
             mode={mode}
             sessionAccessToken={sessionToken}
             voiceChatConfig={voiceChatConfig}
-            onSessionStopped={onSessionStopped}
+            onSessionEnded={onSessionEnded}
             onStreamReady={handleStreamReady}
             roomOptions={{
               adaptiveStream: true,

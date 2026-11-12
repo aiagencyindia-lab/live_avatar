@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   LiveAvatarContextProvider,
   useSession,
@@ -14,7 +14,129 @@ import {
   RoomConnectOptions,
 } from "@heygen/liveavatar-web-sdk";
 import { useAvatarActions } from "../liveavatar/useAvatarActions";
+import { useLiveAvatarContext } from "../liveavatar/context";
 import { SessionMode } from "./LiveAvatarDemo";
+
+// Why a session ended. `error` is shown to the user; `retryable` tells the
+// parent whether an automatic second attempt is worth making.
+export type SessionEndInfo = {
+  error?: string;
+  retryable?: boolean;
+};
+
+// Once connected, how long to wait for the avatar's audio + video to arrive.
+const STREAM_READY_TIMEOUT_MS = 15_000;
+// Delay before re-opening the mic after the avatar stops (lets echo die down).
+const UNMUTE_DELAY_MS = 800;
+// Failsafe: if the avatar's audio has been silent this long while we still
+// think it is talking, the "stopped speaking" event was missed.
+const AVATAR_SILENCE_FAILSAFE_MS = 4_000;
+// Failsafe of last resort when the audio level cannot be measured.
+const AVATAR_TALKING_MAX_MS = 90_000;
+const AUDIO_LEVEL_THRESHOLD = 0.02;
+
+// User-facing text for the reason the server gave for ending a session.
+const describeEndReason = (reason: string | null): string => {
+  switch (reason) {
+    case "MAX_DURATION_REACHED":
+      return "This session reached its time limit. Tap the mic to start a new one.";
+    case "IDLE_TIMEOUT":
+      return "The session ended because nobody was speaking. Tap the mic to start again.";
+    case "NO_CREDITS":
+      return "The avatar service is out of credits, so the session ended.";
+    case "AVATAR_DELETED":
+      return "This avatar is no longer available.";
+    default:
+      return "The session ended. Tap the mic to start again.";
+  }
+};
+
+export const describeStartError = (err: unknown): SessionEndInfo => {
+  const { name, message, status } = (err ?? {}) as {
+    name?: string;
+    message?: string;
+    status?: number | null;
+  };
+
+  if (name === "NotAllowedError" || name === "SecurityError") {
+    return {
+      error:
+        "Microphone access is blocked. Allow the microphone for this site and try again.",
+      retryable: false,
+    };
+  }
+  if (name === "NotFoundError" || name === "OverconstrainedError") {
+    return {
+      error: "No microphone was found. Connect one and try again.",
+      retryable: false,
+    };
+  }
+  if (name === "NotReadableError") {
+    return {
+      error:
+        "The microphone could not be opened. Close other apps using it and try again.",
+      retryable: false,
+    };
+  }
+
+  // A 4xx means the server refused this request (limits, credits, bad
+  // config); asking again will not help. Timeouts and network errors might.
+  const refused = typeof status === "number" && status >= 400 && status < 500;
+  return {
+    error: message
+      ? `Could not start the session: ${message}`
+      : "Could not start the session.",
+    retryable: !refused,
+  };
+};
+
+type AudioMeter = {
+  ctx: AudioContext;
+  analyser: AnalyserNode;
+  samples: Uint8Array<ArrayBuffer>;
+};
+
+const createAudioMeter = (element: HTMLMediaElement): AudioMeter | null => {
+  try {
+    const stream = element.srcObject;
+    if (!(stream instanceof MediaStream)) {
+      return null;
+    }
+    const audioTracks = stream.getAudioTracks();
+    if (audioTracks.length === 0) {
+      return null;
+    }
+    const AudioContextCtor =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioContextCtor) {
+      return null;
+    }
+    const ctx = new AudioContextCtor();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    // Analysis only: not connected to the speakers, the <video> plays audio.
+    ctx.createMediaStreamSource(new MediaStream(audioTracks)).connect(analyser);
+    return { ctx, analyser, samples: new Uint8Array(analyser.fftSize) };
+  } catch (err) {
+    console.warn("Avatar audio meter unavailable:", err);
+    return null;
+  }
+};
+
+// Peak level 0..1, or null when it cannot be measured right now.
+const readAudioLevel = (meter: AudioMeter | null): number | null => {
+  if (!meter || meter.ctx.state !== "running") {
+    return null;
+  }
+  meter.analyser.getByteTimeDomainData(meter.samples);
+  let peak = 0;
+  for (const sample of meter.samples) {
+    peak = Math.max(peak, Math.abs(sample - 128));
+  }
+  return peak / 128;
+};
 
 const Button: React.FC<{
   onClick: () => void;
@@ -34,13 +156,14 @@ const Button: React.FC<{
 
 const LiveAvatarSessionComponent: React.FC<{
   mode: SessionMode;
-  onSessionStopped: () => void;
+  onSessionEnded: (info: SessionEndInfo) => void;
   onStreamReady?: () => void;
-}> = ({ mode, onSessionStopped, onStreamReady }) => {
+}> = ({ mode, onSessionEnded, onStreamReady }) => {
   const [message, setMessage] = useState("");
   const {
     sessionState,
     isStreamReady,
+    streamVersion,
     startSession,
     stopSession,
     connectionQuality,
@@ -77,24 +200,134 @@ const LiveAvatarSessionComponent: React.FC<{
   const voiceChatRef = useRef({ mute, unmute });
   voiceChatRef.current = { mute, unmute };
 
-  useEffect(() => {
-    if (sessionState === SessionState.DISCONNECTED) {
-      onSessionStopped();
-    }
-  }, [sessionState, onSessionStopped]);
+  const { resetAvatarTalking, sessionRef } = useLiveAvatarContext();
 
-  useEffect(() => {
-    if (isStreamReady && videoRef.current) {
-      attachElement(videoRef.current);
-      onStreamReady?.(); // Notify parent that stream is ready
-    }
-  }, [attachElement, isStreamReady, onStreamReady]);
+  // Parent callbacks are read through refs so a new function identity on a
+  // parent re-render does not re-run the effects below.
+  const onSessionEndedRef = useRef(onSessionEnded);
+  onSessionEndedRef.current = onSessionEnded;
+  const onStreamReadyRef = useRef(onStreamReady);
+  onStreamReadyRef.current = onStreamReady;
 
-  useEffect(() => {
-    if (sessionState === SessionState.INACTIVE) {
-      startSession();
+  const startRequestedRef = useRef(false);
+  const userStoppedRef = useRef(false);
+  const endReportedRef = useRef(false);
+  // True once start() has resolved. Until then a DISCONNECTED state belongs
+  // to a failed start, which reports its own (more specific) error.
+  const [startSettled, setStartSettled] = useState(false);
+  // The browser refused to play the avatar's audio without a tap.
+  const [audioBlocked, setAudioBlocked] = useState(false);
+  const audioMeterRef = useRef<AudioMeter | null>(null);
+
+  // Tell the parent the session is over, exactly once.
+  const reportEnd = useCallback((info: SessionEndInfo) => {
+    if (endReportedRef.current) {
+      return;
     }
-  }, [startSession, sessionState]);
+    endReportedRef.current = true;
+    onSessionEndedRef.current(info);
+  }, []);
+
+  // Start the session once, and surface the reason if it fails.
+  useEffect(() => {
+    if (sessionState !== SessionState.INACTIVE || startRequestedRef.current) {
+      return;
+    }
+    startRequestedRef.current = true;
+    startSession().then(
+      () => setStartSettled(true),
+      (err) => {
+        console.error("LiveAvatar session failed to start:", err);
+        reportEnd(describeStartError(err));
+      },
+    );
+  }, [startSession, sessionState, reportEnd]);
+
+  // The session ended after it had started.
+  useEffect(() => {
+    if (sessionState !== SessionState.DISCONNECTED || !startSettled) {
+      return;
+    }
+    reportEnd(
+      userStoppedRef.current
+        ? {}
+        : { error: describeEndReason(sessionRef.current.endReason) },
+    );
+  }, [sessionState, startSettled, reportEnd, sessionRef]);
+
+  // Connected, but the avatar's audio/video never arrived: give up instead
+  // of leaving the spinner up forever.
+  useEffect(() => {
+    if (sessionState !== SessionState.CONNECTED || isStreamReady) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      console.error(
+        `Avatar stream not ready after ${STREAM_READY_TIMEOUT_MS}ms; ending session`,
+      );
+      reportEnd({
+        error: "The avatar took too long to appear. Please try again.",
+        retryable: true,
+      });
+      void stopSession();
+    }, STREAM_READY_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [sessionState, isStreamReady, stopSession, reportEnd]);
+
+  // Attach the avatar's tracks to the <video>. `streamVersion` changes each
+  // time the tracks are re-subscribed (e.g. after a network reconnect), so
+  // the new tracks are attached too.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!isStreamReady || !video) {
+      return;
+    }
+    attachElement(video);
+    onStreamReadyRef.current?.();
+
+    // Start playback explicitly so a blocked autoplay is detected rather
+    // than silently leaving the avatar frozen or mute.
+    let cancelled = false;
+    video.muted = false;
+    video.play().then(
+      () => {
+        if (!cancelled) {
+          setAudioBlocked(false);
+        }
+      },
+      (err) => {
+        if (cancelled || err?.name !== "NotAllowedError") {
+          return;
+        }
+        // Sound needs a tap. Keep the picture moving in the meantime.
+        video.muted = true;
+        video.play().catch(() => {});
+        setAudioBlocked(true);
+      },
+    );
+
+    const meter = createAudioMeter(video);
+    audioMeterRef.current = meter;
+
+    return () => {
+      cancelled = true;
+      audioMeterRef.current = null;
+      void meter?.ctx.close().catch(() => {});
+    };
+  }, [attachElement, isStreamReady, streamVersion]);
+
+  const enableAudio = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+    video.muted = false;
+    void audioMeterRef.current?.ctx.resume().catch(() => {});
+    video.play().then(
+      () => setAudioBlocked(false),
+      (err) => console.warn("Could not enable avatar audio:", err),
+    );
+  }, []);
 
   // Keep-alive: ping HeyGen every 30 seconds to prevent session timeout
   useEffect(() => {
@@ -132,7 +365,7 @@ const LiveAvatarSessionComponent: React.FC<{
         voiceChatRef.current.unmute();
         autoMutedRef.current = false;
         unmuteTimerRef.current = null;
-      }, 800);
+      }, UNMUTE_DELAY_MS);
     }
 
     return () => {
@@ -142,6 +375,44 @@ const LiveAvatarSessionComponent: React.FC<{
       }
     };
   }, [isAvatarTalking, isActive]);
+
+  // Failsafe for the auto-mute above. It depends on an "avatar stopped
+  // speaking" event; if that event is lost the mic would stay muted for the
+  // rest of the session. So while the avatar is marked as talking, watch its
+  // actual audio: once it has spoken and then gone quiet for a while (or a
+  // hard time limit passes), clear the talking flag, which unmutes the mic.
+  useEffect(() => {
+    if (!isActive || !isAvatarTalking) {
+      return;
+    }
+    const startedAt = Date.now();
+    let heardAvatar = false;
+    let silentSince: number | null = null;
+
+    const watchdog = setInterval(() => {
+      const now = Date.now();
+      const level = readAudioLevel(audioMeterRef.current);
+      if (level !== null) {
+        if (level > AUDIO_LEVEL_THRESHOLD) {
+          heardAvatar = true;
+          silentSince = null;
+        } else if (heardAvatar && silentSince === null) {
+          silentSince = now;
+        }
+      }
+      const wentQuiet =
+        silentSince !== null && now - silentSince > AVATAR_SILENCE_FAILSAFE_MS;
+      const tooLong = now - startedAt > AVATAR_TALKING_MAX_MS;
+      if (wentQuiet || tooLong) {
+        console.warn(
+          "Avatar stopped-speaking event not received; unmuting mic as a failsafe",
+        );
+        resetAvatarTalking();
+      }
+    }, 250);
+
+    return () => clearInterval(watchdog);
+  }, [isActive, isAvatarTalking, resetAvatarTalking]);
 
   return (
     <div className="w-full h-full flex flex-col items-center justify-center bg-black relative">
@@ -212,9 +483,22 @@ const LiveAvatarSessionComponent: React.FC<{
             </div>
           </div>
         )}
+        {audioBlocked && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center">
+            <button
+              onClick={enableAudio}
+              className="px-6 py-3 rounded-full bg-white text-black font-medium shadow-lg"
+            >
+              Tap to enable sound
+            </button>
+          </div>
+        )}
         <div className="absolute bottom-8 right-8 z-50">
           <button
-            onClick={() => stopSession()}
+            onClick={() => {
+              userStoppedRef.current = true;
+              void stopSession();
+            }}
             className="group relative flex items-center justify-center w-16 h-16 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-lg transition-all duration-300 hover:scale-105 active:scale-95"
             aria-label="End Session"
           >
@@ -242,7 +526,7 @@ const LiveAvatarSessionComponent: React.FC<{
 export const LiveAvatarSession: React.FC<{
   mode: SessionMode;
   sessionAccessToken: string;
-  onSessionStopped: () => void;
+  onSessionEnded: (info: SessionEndInfo) => void;
   onStreamReady?: () => void;
   voiceChatConfig?: boolean | VoiceChatConfig;
   roomOptions?: RoomOptions;
@@ -250,7 +534,7 @@ export const LiveAvatarSession: React.FC<{
 }> = ({
   mode,
   sessionAccessToken,
-  onSessionStopped,
+  onSessionEnded,
   onStreamReady,
   voiceChatConfig = true,
   roomOptions,
@@ -265,7 +549,7 @@ export const LiveAvatarSession: React.FC<{
       >
         <LiveAvatarSessionComponent
           mode={mode}
-          onSessionStopped={onSessionStopped}
+          onSessionEnded={onSessionEnded}
           onStreamReady={onStreamReady}
         />
       </LiveAvatarContextProvider>

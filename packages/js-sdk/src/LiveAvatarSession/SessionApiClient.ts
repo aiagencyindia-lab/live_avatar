@@ -3,7 +3,8 @@ import { SessionInfo } from "./types";
 
 const DEFAULT_ERROR_CODE = 500;
 const SUCCESS_CODE = 1000;
-const REQUEST_TIMEOUT_MS = 15_000;
+// Starting a session can take ~10s when the avatar is cold, so leave headroom.
+const REQUEST_TIMEOUT_MS = 30_000;
 
 export class SessionApiError extends Error {
   errorCode: number;

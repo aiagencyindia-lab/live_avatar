@@ -57,7 +57,9 @@ export async function POST(request: NextRequest) {
         return new Response(JSON.stringify({
             url: livekit_url,
             token: livekit_client_token,
-            sessionId: session_id
+            sessionId: session_id,
+            // Needed by the client to end the session when it is done.
+            sessionToken,
         }), {
             status: 200,
             headers: { "Content-Type": "application/json" }

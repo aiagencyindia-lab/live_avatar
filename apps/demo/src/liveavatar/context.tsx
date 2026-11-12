@@ -1,4 +1,11 @@
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   ConnectionQuality,
   LiveAvatarSession,
@@ -12,7 +19,7 @@ import {
   RoomConnectOptions,
 } from "@heygen/liveavatar-web-sdk";
 import { LiveAvatarSessionMessage } from "./types";
-import { API_URL } from "../../app/api/secrets";
+import { LIVEAVATAR_API_URL, stopSessionKeepalive } from "./stopSession";
 
 type LiveAvatarContextProps = {
   sessionRef: React.RefObject<LiveAvatarSession>;
@@ -22,10 +29,15 @@ type LiveAvatarContextProps = {
 
   sessionState: SessionState;
   isStreamReady: boolean;
+  // Increments every time the avatar's tracks are (re)subscribed, so the UI
+  // can re-attach them after a network reconnect.
+  streamVersion: number;
   connectionQuality: ConnectionQuality;
 
   isUserTalking: boolean;
   isAvatarTalking: boolean;
+  // Failsafe for a missed "avatar stopped speaking" event.
+  resetAvatarTalking: () => void;
 
   messages: LiveAvatarSessionMessage[];
 };
@@ -39,8 +51,10 @@ export const LiveAvatarContext = createContext<LiveAvatarContextProps>({
   voiceChatState: VoiceChatState.INACTIVE,
   sessionState: SessionState.DISCONNECTED,
   isStreamReady: false,
+  streamVersion: 0,
   isUserTalking: false,
   isAvatarTalking: false,
+  resetAvatarTalking: () => {},
   messages: [],
 });
 
@@ -60,6 +74,7 @@ const useSessionState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
     sessionRef.current?.connectionQuality || ConnectionQuality.UNKNOWN,
   );
   const [isStreamReady, setIsStreamReady] = useState<boolean>(false);
+  const [streamVersion, setStreamVersion] = useState(0);
 
   useEffect(() => {
     if (sessionRef.current) {
@@ -73,6 +88,7 @@ const useSessionState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
       });
       sessionRef.current.on(SessionEvent.SESSION_STREAM_READY, () => {
         setIsStreamReady(true);
+        setStreamVersion((version) => version + 1);
       });
       sessionRef.current.on(
         SessionEvent.SESSION_CONNECTION_QUALITY_CHANGED,
@@ -81,7 +97,7 @@ const useSessionState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
     }
   }, [sessionRef]);
 
-  return { sessionState, isStreamReady, connectionQuality };
+  return { sessionState, isStreamReady, streamVersion, connectionQuality };
 };
 
 const useVoiceChatState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
@@ -129,7 +145,11 @@ const useTalkingState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
     }
   }, [sessionRef]);
 
-  return { isUserTalking, isAvatarTalking };
+  const resetAvatarTalking = useCallback(() => {
+    setIsAvatarTalking(false);
+  }, []);
+
+  return { isUserTalking, isAvatarTalking, resetAvatarTalking };
 };
 
 // const useChatHistoryState = (
@@ -190,7 +210,7 @@ export const LiveAvatarContextProvider = ({
   // Default voice chat on
   const config = {
     voiceChat: voiceChatConfig,
-    apiUrl: API_URL,
+    apiUrl: LIVEAVATAR_API_URL,
     roomOptions,
     connectOptions,
   };
@@ -198,11 +218,31 @@ export const LiveAvatarContextProvider = ({
     new LiveAvatarSession(sessionAccessToken, config),
   );
 
-  const { sessionState, isStreamReady, connectionQuality } =
+  const { sessionState, isStreamReady, streamVersion, connectionQuality } =
     useSessionState(sessionRef);
 
+  // End the session on the server when the tab is closed, refreshed or
+  // navigated away from. Otherwise it keeps running (and keeps its slot)
+  // until the server times it out.
+  useEffect(() => {
+    const onPageHide = () => {
+      const session = sessionRef.current;
+      if (
+        session.state === SessionState.INACTIVE ||
+        session.state === SessionState.DISCONNECTED
+      ) {
+        return;
+      }
+      stopSessionKeepalive(sessionAccessToken);
+      void session.stop();
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => window.removeEventListener("pagehide", onPageHide);
+  }, [sessionAccessToken]);
+
   const { isMuted, voiceChatState } = useVoiceChatState(sessionRef);
-  const { isUserTalking, isAvatarTalking } = useTalkingState(sessionRef);
+  const { isUserTalking, isAvatarTalking, resetAvatarTalking } =
+    useTalkingState(sessionRef);
   // const { messages } = useChatHistoryState(sessionRef);
 
   return (
@@ -211,11 +251,13 @@ export const LiveAvatarContextProvider = ({
         sessionRef,
         sessionState,
         isStreamReady,
+        streamVersion,
         connectionQuality,
         isMuted,
         voiceChatState,
         isUserTalking,
         isAvatarTalking,
+        resetAvatarTalking,
         messages: [], // TODO - properly implement chat history
       }}
     >

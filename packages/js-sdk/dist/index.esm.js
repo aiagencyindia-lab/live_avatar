@@ -25851,7 +25851,7 @@ const getAgentEventEmitArgs = (event) => {
                 return [AgentEventsEnum.AVATAR_TRANSCRIPTION, payload];
             }
             default:
-                console.warn("New unsupported event type");
+                console.debug("Unhandled agent event type:", event.event_type);
                 return null;
         }
     }
@@ -26409,7 +26409,8 @@ class VoiceChat extends EventEmitter {
 
 const DEFAULT_ERROR_CODE = 500;
 const SUCCESS_CODE = 1000;
-const REQUEST_TIMEOUT_MS = 15000;
+// Starting a session can take ~10s when the avatar is cold, so leave headroom.
+const REQUEST_TIMEOUT_MS = 30000;
 class SessionApiError extends Error {
     constructor(message, errorCode, status) {
         super(message);
@@ -26496,9 +26497,18 @@ function splitPcm24kStringToChunks(pcmString) {
 }
 
 const HEYGEN_PARTICIPANT_ID = "heygen";
+// Sent by the server on the response channel when it ends the session.
+// Observed live as "session.stop" with a `stop_reason`; the docs describe
+// "session.stopped" with an `end_reason`. Both are accepted.
+const SESSION_STOPPED_EVENT_TYPES = ["session.stopped", "session.stop"];
+// How long the avatar may be gone from the room before the session is
+// treated as over (covers a lost session.stopped event).
+const AVATAR_LEFT_GRACE_MS = 3000;
 class LiveAvatarSession extends EventEmitter {
     constructor(sessionAccessToken, config) {
         super();
+        this._endReason = null;
+        this._avatarLeftTimer = null;
         this._wsUrl = null;
         this._wsReconnectAttempts = 0;
         this.connectionQualityIndicator = new ConnectionQualityIndicator((quality) => this.emit(SessionEvent.SESSION_CONNECTION_QUALITY_CHANGED, quality));
@@ -26532,6 +26542,13 @@ class LiveAvatarSession extends EventEmitter {
     }
     get voiceChat() {
         return this._voiceChat;
+    }
+    /**
+     * Why the server ended the session (e.g. IDLE_TIMEOUT, MAX_DURATION_REACHED,
+     * NO_CREDITS), or null if it was not ended by the server.
+     */
+    get endReason() {
+        return this._endReason;
     }
     get maxSessionDuration() {
         var _a, _b;
@@ -26589,10 +26606,17 @@ class LiveAvatarSession extends EventEmitter {
                 return;
             }
             try {
-                this.sessionClient.keepAlive();
+                yield this.sessionClient.keepAlive();
             }
             catch (error) {
                 console.error("Session keep alive error on server:", error);
+                // A 4xx means the server no longer has this session: it is over.
+                if (error instanceof SessionApiError &&
+                    error.status !== null &&
+                    error.status >= 400 &&
+                    error.status < 500) {
+                    this.handleServerStop("SESSION_CLOSED");
+                }
                 throw error;
             }
         });
@@ -26689,6 +26713,7 @@ class LiveAvatarSession extends EventEmitter {
             }
         });
         this.room.on(RoomEvent.DataReceived, (roomMessage, _, __, topic) => {
+            var _a, _b;
             if (topic !== LIVEKIT_SERVER_RESPONSE_CHANNEL_TOPIC) {
                 return;
             }
@@ -26703,6 +26728,12 @@ class LiveAvatarSession extends EventEmitter {
             if (!eventMsg) {
                 return;
             }
+            const rawEvent = eventMsg;
+            if (rawEvent.event_type &&
+                SESSION_STOPPED_EVENT_TYPES.includes(rawEvent.event_type)) {
+                this.handleServerStop((_b = (_a = rawEvent.stop_reason) !== null && _a !== void 0 ? _a : rawEvent.end_reason) !== null && _b !== void 0 ? _b : "UNKNOWN");
+                return;
+            }
             const emitArgs = getAgentEventEmitArgs(eventMsg);
             if (emitArgs) {
                 const [event_type, ...event_data] = emitArgs;
@@ -26711,6 +26742,21 @@ class LiveAvatarSession extends EventEmitter {
         });
         this.room.on(RoomEvent.ParticipantConnected, (participant) => {
             console.warn("participantConnected", participant);
+            if (participant.identity === HEYGEN_PARTICIPANT_ID) {
+                this.clearAvatarLeftTimer();
+            }
+        });
+        // The avatar leaving the room means the session is over, even though our
+        // own connection to the room stays up.
+        this.room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+            if (participant.identity !== HEYGEN_PARTICIPANT_ID) {
+                return;
+            }
+            this.clearAvatarLeftTimer();
+            this._avatarLeftTimer = setTimeout(() => {
+                this._avatarLeftTimer = null;
+                this.handleServerStop("AVATAR_LEFT");
+            }, AVATAR_LEFT_GRACE_MS);
         });
         this.room.on(RoomEvent.TrackUnsubscribed, (track) => {
             console.warn("trackUnsubscribed", track);
@@ -26869,8 +26915,26 @@ class LiveAvatarSession extends EventEmitter {
         this._state = state;
         this.emit(SessionEvent.SESSION_STATE_CHANGED, state);
     }
+    clearAvatarLeftTimer() {
+        if (this._avatarLeftTimer) {
+            clearTimeout(this._avatarLeftTimer);
+            this._avatarLeftTimer = null;
+        }
+    }
+    // The server ended the session (time limit, idle timeout, no credits, ...).
+    handleServerStop(reason) {
+        if (this.state === SessionState.DISCONNECTING ||
+            this.state === SessionState.DISCONNECTED) {
+            return;
+        }
+        console.warn("Session ended by server:", reason);
+        this._endReason = reason;
+        this.cleanup();
+        this.postStop(SessionDisconnectReason.UNKNOWN_REASON);
+    }
     cleanup() {
         return __awaiter$1(this, void 0, void 0, function* () {
+            this.clearAvatarLeftTimer();
             this.connectionQualityIndicator.stop();
             this.voiceChat.stop();
             if (this._remoteAudioTrack) {

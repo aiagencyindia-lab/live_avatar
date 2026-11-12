@@ -3,11 +3,26 @@
 import { useEffect, useRef, useState } from "react";
 // We are using livekit-client DIRECTLY here, bypassing the HeyGen SDK wrapper
 import { Room, RoomEvent, VideoPresets, RemoteVideoTrack, RemoteAudioTrack } from "livekit-client";
+import { stopSessionKeepalive } from "../../src/liveavatar/stopSession";
 
 export default function LiveKitDirectPage() {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [status, setStatus] = useState("Idle");
     const [room, setRoom] = useState<Room | null>(null);
+    // Token of the running avatar session, so it can be ended on the server.
+    const sessionTokenRef = useRef("");
+
+    const endServerSession = () => {
+        stopSessionKeepalive(sessionTokenRef.current);
+        sessionTokenRef.current = "";
+    };
+
+    // Leaving the LiveKit room does not end the avatar session, so end it
+    // explicitly when the tab is closed or refreshed.
+    useEffect(() => {
+        window.addEventListener("pagehide", endServerSession);
+        return () => window.removeEventListener("pagehide", endServerSession);
+    }, []);
 
     const startSession = async () => {
         try {
@@ -17,7 +32,10 @@ export default function LiveKitDirectPage() {
             const res = await fetch("/api/get-livekit-token", { method: "POST" });
             if (!res.ok) throw new Error(await res.text());
 
-            const { url, token } = await res.json();
+            const { url, token, sessionToken } = await res.json();
+            // Starting again replaces any session that is still running.
+            endServerSession();
+            sessionTokenRef.current = sessionToken ?? "";
 
             setStatus("Connecting to LiveKit...");
 
@@ -41,6 +59,7 @@ export default function LiveKitDirectPage() {
             });
 
             newRoom.on(RoomEvent.Disconnected, () => {
+                endServerSession();
                 setStatus("Disconnected");
                 setRoom(null);
             });
@@ -52,11 +71,13 @@ export default function LiveKitDirectPage() {
 
         } catch (e) {
             console.error(e);
+            endServerSession();
             setStatus("Error: " + (e as Error).message);
         }
     };
 
     const stopSession = async () => {
+        endServerSession();
         if (room) {
             await room.disconnect();
             setRoom(null);

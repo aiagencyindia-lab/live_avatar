@@ -35,10 +35,17 @@ import {
   LIVEKIT_COMMAND_CHANNEL_TOPIC,
   LIVEKIT_SERVER_RESPONSE_CHANNEL_TOPIC,
 } from "../const";
-import { SessionAPIClient } from "./SessionApiClient";
+import { SessionAPIClient, SessionApiError } from "./SessionApiClient";
 import { splitPcm24kStringToChunks } from "../audio_utils";
 
 const HEYGEN_PARTICIPANT_ID = "heygen";
+// Sent by the server on the response channel when it ends the session.
+// Observed live as "session.stop" with a `stop_reason`; the docs describe
+// "session.stopped" with an `end_reason`. Both are accepted.
+const SESSION_STOPPED_EVENT_TYPES = ["session.stopped", "session.stop"];
+// How long the avatar may be gone from the room before the session is
+// treated as over (covers a lost session.stopped event).
+const AVATAR_LEFT_GRACE_MS = 3_000;
 
 export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
   SessionEventCallbacks & AgentEventCallbacks
@@ -46,6 +53,8 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
   private static readonly WS_CONNECT_TIMEOUT_MS = 10_000;
   private static readonly WS_MAX_RECONNECT_ATTEMPTS = 3;
 
+  private _endReason: string | null = null;
+  private _avatarLeftTimer: ReturnType<typeof setTimeout> | null = null;
   private _wsUrl: string | null = null;
   private _wsReconnectAttempts = 0;
   private readonly sessionClient: SessionAPIClient;
@@ -111,6 +120,14 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
     return this._voiceChat;
   }
 
+  /**
+   * Why the server ended the session (e.g. IDLE_TIMEOUT, MAX_DURATION_REACHED,
+   * NO_CREDITS), or null if it was not ended by the server.
+   */
+  public get endReason(): string | null {
+    return this._endReason;
+  }
+
   public get maxSessionDuration(): number | null {
     return this._sessionInfo?.max_session_duration ?? null;
   }
@@ -174,9 +191,18 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
     }
 
     try {
-      this.sessionClient.keepAlive();
+      await this.sessionClient.keepAlive();
     } catch (error) {
       console.error("Session keep alive error on server:", error);
+      // A 4xx means the server no longer has this session: it is over.
+      if (
+        error instanceof SessionApiError &&
+        error.status !== null &&
+        error.status >= 400 &&
+        error.status < 500
+      ) {
+        this.handleServerStop("SESSION_CLOSED");
+      }
       throw error;
     }
   }
@@ -307,6 +333,20 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
       if (!eventMsg) {
         return;
       }
+      const rawEvent = eventMsg as unknown as {
+        event_type?: string;
+        stop_reason?: string;
+        end_reason?: string;
+      };
+      if (
+        rawEvent.event_type &&
+        SESSION_STOPPED_EVENT_TYPES.includes(rawEvent.event_type)
+      ) {
+        this.handleServerStop(
+          rawEvent.stop_reason ?? rawEvent.end_reason ?? "UNKNOWN",
+        );
+        return;
+      }
       const emitArgs = getAgentEventEmitArgs(eventMsg);
       if (emitArgs) {
         const [event_type, ...event_data] = emitArgs;
@@ -316,6 +356,22 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
 
     this.room.on(RoomEvent.ParticipantConnected, (participant) => {
       console.warn("participantConnected", participant);
+      if (participant.identity === HEYGEN_PARTICIPANT_ID) {
+        this.clearAvatarLeftTimer();
+      }
+    });
+
+    // The avatar leaving the room means the session is over, even though our
+    // own connection to the room stays up.
+    this.room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+      if (participant.identity !== HEYGEN_PARTICIPANT_ID) {
+        return;
+      }
+      this.clearAvatarLeftTimer();
+      this._avatarLeftTimer = setTimeout(() => {
+        this._avatarLeftTimer = null;
+        this.handleServerStop("AVATAR_LEFT");
+      }, AVATAR_LEFT_GRACE_MS);
     });
 
     this.room.on(RoomEvent.TrackUnsubscribed, (track) => {
@@ -507,7 +563,29 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
     this.emit(SessionEvent.SESSION_STATE_CHANGED, state);
   }
 
+  private clearAvatarLeftTimer(): void {
+    if (this._avatarLeftTimer) {
+      clearTimeout(this._avatarLeftTimer);
+      this._avatarLeftTimer = null;
+    }
+  }
+
+  // The server ended the session (time limit, idle timeout, no credits, ...).
+  private handleServerStop(reason: string): void {
+    if (
+      this.state === SessionState.DISCONNECTING ||
+      this.state === SessionState.DISCONNECTED
+    ) {
+      return;
+    }
+    console.warn("Session ended by server:", reason);
+    this._endReason = reason;
+    this.cleanup();
+    this.postStop(SessionDisconnectReason.UNKNOWN_REASON);
+  }
+
   private async cleanup(): Promise<void> {
+    this.clearAvatarLeftTimer();
     this.connectionQualityIndicator.stop();
     this.voiceChat.stop();
     if (this._remoteAudioTrack) {

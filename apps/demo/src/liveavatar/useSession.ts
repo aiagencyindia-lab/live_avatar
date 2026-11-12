@@ -2,8 +2,13 @@ import { useCallback } from "react";
 import { useLiveAvatarContext } from "./context";
 
 export const useSession = () => {
-  const { sessionRef, sessionState, isStreamReady, connectionQuality } =
-    useLiveAvatarContext();
+  const {
+    sessionRef,
+    sessionState,
+    isStreamReady,
+    streamVersion,
+    connectionQuality,
+  } = useLiveAvatarContext();
 
   const startSession = useCallback(async () => {
     return await sessionRef.current.start();
@@ -27,6 +32,7 @@ export const useSession = () => {
   return {
     sessionState,
     isStreamReady,
+    streamVersion,
     connectionQuality,
     startSession,
     stopSession,
